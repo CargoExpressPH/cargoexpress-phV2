@@ -133,7 +133,7 @@ INSERT INTO auth.identities (
   updated_at
 )
 SELECT 
-  id::text,
+  gen_random_uuid(),
   id,
   jsonb_build_object('sub', id::text, 'email', email),
   'email',
@@ -142,6 +142,9 @@ SELECT
   now(),
   now()
 FROM auth.users
+WHERE NOT EXISTS (
+  SELECT 1 FROM auth.identities WHERE auth.identities.user_id = auth.users.id
+)
 ON CONFLICT DO NOTHING;
 
 -- 2. PROFILES
