@@ -103,6 +103,7 @@ ON CONFLICT (id) DO UPDATE SET
   raw_user_meta_data = EXCLUDED.raw_user_meta_data;
 
 -- 1b. Fix any existing NULL token columns in auth.users
+-- Note: Do NOT set phone = '', as phone has a UNIQUE constraint (users_phone_key)
 UPDATE auth.users
 SET 
   confirmation_token = COALESCE(confirmation_token, ''),
@@ -110,7 +111,6 @@ SET
   email_change = COALESCE(email_change, ''),
   email_change_token_new = COALESCE(email_change_token_new, ''),
   email_change_token_current = COALESCE(email_change_token_current, ''),
-  phone = COALESCE(phone, ''),
   phone_change = COALESCE(phone_change, ''),
   phone_change_token = COALESCE(phone_change_token, ''),
   reauthentication_token = COALESCE(reauthentication_token, ''),
