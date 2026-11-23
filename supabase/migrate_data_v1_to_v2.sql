@@ -13,51 +13,130 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- 1. ADMIN USERS (auth.users)
+-- Note: GoTrue requires non-null empty strings ('') for all token fields,
+-- otherwise it throws "Database error querying schema" (converting NULL to string is unsupported).
 
 INSERT INTO auth.users (
   id, instance_id, email, encrypted_password, email_confirmed_at,
-  raw_app_meta_data, raw_user_meta_data, is_super_admin, created_at, updated_at, aud, role
+  confirmation_token, recovery_token, email_change, email_change_token_new,
+  email_change_token_current, phone_change, phone_change_token, reauthentication_token,
+  email_change_confirm_status, is_super_admin, is_sso_user, is_anonymous,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at, aud, role
 )
 VALUES (
   'a9790e8d-cce5-4a86-b127-1a0f45a4952c', '00000000-0000-0000-0000-000000000000',
   'e2e.admin@cargoexpressph-e2e.test', extensions.crypt('sarongBEA22', extensions.gen_salt('bf')),
-  now(), '{"provider":"email","providers":["email"]}'::jsonb, '{"email":"e2e.admin@cargoexpressph-e2e.test","email_verified":false,"legal_privacy_accepted":true,"legal_privacy_version":"2026-08-22","legal_terms_accepted":true,"legal_terms_version":"2026-08-22","name":"Audit Test Admin","phone":"09170000001","phone_verified":false,"sub":"a9790e8d-cce5-4a86-b127-1a0f45a4952c","wants_announcements":false}'::jsonb,
-  false, now(), now(), 'authenticated', 'authenticated'
+  now(), '', '', '', '', '', '', '', '', 0, false, false, false,
+  '{"provider":"email","providers":["email"]}'::jsonb, '{"email":"e2e.admin@cargoexpressph-e2e.test","email_verified":false,"legal_privacy_accepted":true,"legal_privacy_version":"2026-08-22","legal_terms_accepted":true,"legal_terms_version":"2026-08-22","name":"Audit Test Admin","phone":"09170000001","phone_verified":false,"sub":"a9790e8d-cce5-4a86-b127-1a0f45a4952c","wants_announcements":false}'::jsonb,
+  now(), now(), 'authenticated', 'authenticated'
 )
 ON CONFLICT (id) DO UPDATE SET
   email = EXCLUDED.email,
   encrypted_password = EXCLUDED.encrypted_password,
+  confirmation_token = '',
+  recovery_token = '',
+  email_change = '',
+  email_change_token_new = '',
+  email_change_token_current = '',
+  phone_change = '',
+  phone_change_token = '',
+  reauthentication_token = '',
   raw_user_meta_data = EXCLUDED.raw_user_meta_data;
 
 INSERT INTO auth.users (
   id, instance_id, email, encrypted_password, email_confirmed_at,
-  raw_app_meta_data, raw_user_meta_data, is_super_admin, created_at, updated_at, aud, role
+  confirmation_token, recovery_token, email_change, email_change_token_new,
+  email_change_token_current, phone_change, phone_change_token, reauthentication_token,
+  email_change_confirm_status, is_super_admin, is_sso_user, is_anonymous,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at, aud, role
 )
 VALUES (
   'dc668c1f-2948-4e38-a5f4-40b9c692dc73', '00000000-0000-0000-0000-000000000000',
   'marlon_sarong@yahoo.com', extensions.crypt('sarongBEA22', extensions.gen_salt('bf')),
-  now(), '{"provider":"email","providers":["email"]}'::jsonb, '{"email_verified":true,"full_name":"Marlon Sarong","name":"Marlon Sarong"}'::jsonb,
-  false, now(), now(), 'authenticated', 'authenticated'
+  now(), '', '', '', '', '', '', '', '', 0, false, false, false,
+  '{"provider":"email","providers":["email"]}'::jsonb, '{"email_verified":true,"full_name":"Marlon Sarong","name":"Marlon Sarong"}'::jsonb,
+  now(), now(), 'authenticated', 'authenticated'
 )
 ON CONFLICT (id) DO UPDATE SET
   email = EXCLUDED.email,
   encrypted_password = EXCLUDED.encrypted_password,
+  confirmation_token = '',
+  recovery_token = '',
+  email_change = '',
+  email_change_token_new = '',
+  email_change_token_current = '',
+  phone_change = '',
+  phone_change_token = '',
+  reauthentication_token = '',
   raw_user_meta_data = EXCLUDED.raw_user_meta_data;
 
 INSERT INTO auth.users (
   id, instance_id, email, encrypted_password, email_confirmed_at,
-  raw_app_meta_data, raw_user_meta_data, is_super_admin, created_at, updated_at, aud, role
+  confirmation_token, recovery_token, email_change, email_change_token_new,
+  email_change_token_current, phone_change, phone_change_token, reauthentication_token,
+  email_change_confirm_status, is_super_admin, is_sso_user, is_anonymous,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at, aud, role
 )
 VALUES (
   '2e11107a-0275-4dff-917c-7c71b13fa2d4', '00000000-0000-0000-0000-000000000000',
   'ship2doorofficial@gmail.com', extensions.crypt('sarongBEA22', extensions.gen_salt('bf')),
-  now(), '{"provider":"email","providers":["email"]}'::jsonb, '{"email_verified":true,"full_name":"Cristina Sarong","name":"Cristina Sarong"}'::jsonb,
-  false, now(), now(), 'authenticated', 'authenticated'
+  now(), '', '', '', '', '', '', '', '', 0, false, false, false,
+  '{"provider":"email","providers":["email"]}'::jsonb, '{"email_verified":true,"full_name":"Cristina Sarong","name":"Cristina Sarong"}'::jsonb,
+  now(), now(), 'authenticated', 'authenticated'
 )
 ON CONFLICT (id) DO UPDATE SET
   email = EXCLUDED.email,
   encrypted_password = EXCLUDED.encrypted_password,
+  confirmation_token = '',
+  recovery_token = '',
+  email_change = '',
+  email_change_token_new = '',
+  email_change_token_current = '',
+  phone_change = '',
+  phone_change_token = '',
+  reauthentication_token = '',
   raw_user_meta_data = EXCLUDED.raw_user_meta_data;
+
+-- 1b. Fix any existing NULL token columns in auth.users
+UPDATE auth.users
+SET 
+  confirmation_token = COALESCE(confirmation_token, ''),
+  recovery_token = COALESCE(recovery_token, ''),
+  email_change = COALESCE(email_change, ''),
+  email_change_token_new = COALESCE(email_change_token_new, ''),
+  email_change_token_current = COALESCE(email_change_token_current, ''),
+  phone_change = COALESCE(phone_change, ''),
+  phone_change_token = COALESCE(phone_change_token, ''),
+  reauthentication_token = COALESCE(reauthentication_token, ''),
+  email_change_confirm_status = COALESCE(email_change_confirm_status, 0),
+  is_super_admin = COALESCE(is_super_admin, false),
+  is_sso_user = COALESCE(is_sso_user, false),
+  is_anonymous = COALESCE(is_anonymous, false),
+  aud = COALESCE(aud, 'authenticated'),
+  role = COALESCE(role, 'authenticated');
+
+-- 1c. Insert corresponding rows into auth.identities
+INSERT INTO auth.identities (
+  id,
+  user_id,
+  identity_data,
+  provider,
+  provider_id,
+  last_sign_in_at,
+  created_at,
+  updated_at
+)
+SELECT 
+  id::text,
+  id,
+  jsonb_build_object('sub', id::text, 'email', email),
+  'email',
+  id::text,
+  now(),
+  now(),
+  now()
+FROM auth.users
+ON CONFLICT DO NOTHING;
 
 -- 2. PROFILES
 
