@@ -223,9 +223,19 @@ const LandingPage = () => {
       {/* ══════════════════════════════════════════════════════════════════
           1. AVAILABLE TRIP SCHEDULES OVERVIEW SECTION
       ══════════════════════════════════════════════════════════════════ */}
-      <section className="lx-section lx-schedules-overview" aria-labelledby="lx-schedules-title">
+      {/* Section Divider 1 */}
+      <div className="lx-section-divider">
+        <div className="lx-divider-pill">
+          <Calendar size={14} /> 1. Trip Schedules
+        </div>
+      </div>
+
+      <section className="lx-section lx-section-box lx-section-schedules" aria-labelledby="lx-schedules-title">
         <div className="lx-section-head">
           <div>
+            <div className="lx-section-pill-tag">
+              <span className="lx-pill-dot" /> Open Departures
+            </div>
             <h2 id="lx-schedules-title" style={{ fontSize: '1.75rem', fontWeight: 800, margin: '0 0 6px' }}>
               Available Trip Schedules Overview
             </h2>
@@ -243,22 +253,21 @@ const LandingPage = () => {
             Loading available trip schedules...
           </div>
         ) : trips.length === 0 ? (
-          <div
-            className="card"
-            style={{
-              padding: 24,
-              textAlign: 'center',
-              background: 'var(--bg-secondary)',
-              borderRadius: 'var(--radius-lg)',
-            }}
-          >
-            <p style={{ margin: 0, fontWeight: 600 }}>No open scheduled trips right now.</p>
-            <p style={{ margin: '6px 0 16px', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-              You can still book below! Unassigned bookings are saved as Pending and assigned to the next upcoming trip by Dispatch.
-            </p>
-            <button type="button" className="btn btn-primary btn-sm" onClick={scrollToBooking}>
-              Book Flexible Cargo Now
-            </button>
+          <div className="lx-empty-trips-banner">
+            <div className="lx-empty-trips-icon">
+              <Calendar size={28} color="var(--primary, #16A34A)" />
+            </div>
+            <div>
+              <h4 style={{ margin: '0 0 4px', fontSize: '1.05rem', fontWeight: 700 }}>
+                Flexible Sea Freight Booking Available
+              </h4>
+              <p style={{ margin: '0 0 12px', fontSize: '0.9rem', color: 'var(--text-secondary, #64748b)', maxWidth: 540 }}>
+                No scheduled departure picked yet? You can still book your shipment right away below! Dispatch will assign it to the next upcoming trip.
+              </p>
+              <button type="button" className="btn btn-primary btn-sm" onClick={scrollToBooking} style={{ fontWeight: 700 }}>
+                Book Flexible Cargo Below <ArrowRight size={14} style={{ marginLeft: 6 }} />
+              </button>
+            </div>
           </div>
         ) : (
           <div className="lx-schedules-grid">
@@ -329,10 +338,17 @@ const LandingPage = () => {
       {/* ══════════════════════════════════════════════════════════════════
           2. & 3. DIRECT CARGO BOOKING FORM (NO LOGIN REQUIRED)
       ══════════════════════════════════════════════════════════════════ */}
+      {/* Section Divider 2 */}
+      <div className="lx-section-divider">
+        <div className="lx-divider-pill lx-divider-pill-emerald">
+          <Truck size={14} /> 2. Direct Cargo Booking Form
+        </div>
+      </div>
+
       <section
         id="booking-section"
         ref={bookingSectionRef}
-        className="lx-section"
+        className="lx-section lx-section-box lx-section-booking"
         aria-labelledby="lx-booking-title"
         style={{ scrollMarginTop: 80 }}
       >
@@ -342,13 +358,20 @@ const LandingPage = () => {
       {/* ══════════════════════════════════════════════════════════════════
           MESSENGER INTEGRATION & DIRECT INQUIRY SECTION
       ══════════════════════════════════════════════════════════════════ */}
-      <section className="lx-section" aria-labelledby="lx-inquiry-title">
+      {/* Section Divider 3 */}
+      <div className="lx-section-divider">
+        <div className="lx-divider-pill">
+          <MessageCircle size={14} /> 3. Live Support &amp; Customer Inquiries
+        </div>
+      </div>
+
+      <section className="lx-section lx-section-box lx-section-inquiry" aria-labelledby="lx-inquiry-title">
         <div className="lx-inquiry-wrapper">
           {/* Left Column: Messenger Chat & Social Connect */}
           <div className="lx-connect-card">
             <div>
-              <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                Instant Customer Support
+              <span className="lx-section-pill-tag">
+                <span className="lx-pill-dot" /> Instant Support
               </span>
               <h2 id="lx-inquiry-title" style={{ margin: '6px 0 10px', fontSize: '1.5rem', fontWeight: 800 }}>
                 Need Help or Have Questions?
@@ -425,9 +448,21 @@ const LandingPage = () => {
       {/* ══════════════════════════════════════════════════════════════════
           HOW SHIPPING WORKS
       ══════════════════════════════════════════════════════════════════ */}
-      <section className="lx-section" aria-labelledby="lx-steps-title">
+      {/* Section Divider 4 */}
+      <div className="lx-section-divider">
+        <div className="lx-divider-pill">
+          <HelpCircle size={14} /> 4. Shipping Guide
+        </div>
+      </div>
+
+      <section className="lx-section lx-section-box lx-section-steps" aria-labelledby="lx-steps-title">
         <div className="lx-section-head">
-          <h2 id="lx-steps-title">How Cargo Delivery Works</h2>
+          <div>
+            <div className="lx-section-pill-tag">
+              <span className="lx-pill-dot" /> Simple 4-Step Process
+            </div>
+            <h2 id="lx-steps-title">How Cargo Delivery Works</h2>
+          </div>
           <button type="button" onClick={scrollToBooking} className="lx-text-link" style={{ background: 'none', border: 'none', cursor: 'pointer', font: 'inherit' }}>
             Book without an account <ArrowRight size={16} aria-hidden="true" />
           </button>
@@ -446,7 +481,14 @@ const LandingPage = () => {
       {/* ══════════════════════════════════════════════════════════════════
           PAGES & RESOURCES
       ══════════════════════════════════════════════════════════════════ */}
-      <section className="lx-section lx-more" aria-labelledby="lx-more-title">
+      {/* Section Divider 5 */}
+      <div className="lx-section-divider">
+        <div className="lx-divider-pill">
+          <ShieldCheck size={14} /> 5. Help &amp; Resources
+        </div>
+      </div>
+
+      <section className="lx-section lx-section-box lx-section-more" aria-labelledby="lx-more-title">
         <h2 id="lx-more-title">Before You Book</h2>
         <ul className="lx-pages">
           {PAGES.map(([to, title, text]) => (

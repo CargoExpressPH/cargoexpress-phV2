@@ -582,17 +582,10 @@ const PublicBookingForm = ({ preselectedTrip = null, onBookingComplete = null })
     <form
       id="direct-cargo-booking-form"
       onSubmit={handleSubmit}
-      className="card public-booking-card"
-      style={{
-        padding: '32px 24px',
-        background: 'var(--bg-primary, #fff)',
-        borderRadius: 'var(--radius-lg, 16px)',
-        border: '1px solid var(--border, #e2e8f0)',
-        boxShadow: '0 8px 30px rgba(0,0,0,0.04)',
-      }}
+      className="public-booking-form-clean"
     >
       {/* Form Intro Header */}
-      <div style={{ marginBottom: 28, borderBottom: '1px solid var(--border, #e2e8f0)', paddingBottom: 20 }}>
+      <div style={{ marginBottom: 28, borderBottom: '1.5px solid var(--border, #e2e8f0)', paddingBottom: 20 }}>
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--primary)', fontWeight: 700, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6 }}>
           <ShieldCheck size={18} /> No Login Required · Quick Public Booking
         </div>
@@ -605,9 +598,10 @@ const PublicBookingForm = ({ preselectedTrip = null, onBookingComplete = null })
       </div>
 
       {/* ── STEP 1: ROUTE & TRIP SELECTION ── */}
-      <section style={{ marginBottom: 32 }}>
-        <h3 style={{ fontSize: '1.15rem', fontWeight: 700, margin: '0 0 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Truck size={20} color="var(--primary)" /> 1. Route &amp; Trip Selection
+      <section className="pub-step-box">
+        <h3 className="pub-step-title">
+          <span className="pub-step-num">1</span>
+          <Truck size={20} color="var(--primary)" /> Route &amp; Trip Selection
         </h3>
 
         {/* Route Pills */}
@@ -742,9 +736,10 @@ const PublicBookingForm = ({ preselectedTrip = null, onBookingComplete = null })
       </section>
 
       {/* ── STEP 2: SENDER DETAILS ── */}
-      <section style={{ marginBottom: 32 }}>
-        <h3 style={{ fontSize: '1.15rem', fontWeight: 700, margin: '0 0 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <User size={20} color="var(--primary)" /> 2. Sender Details (Pickup Contact)
+      <section className="pub-step-box">
+        <h3 className="pub-step-title">
+          <span className="pub-step-num">2</span>
+          <User size={20} color="var(--primary)" /> Sender Details (Pickup Contact)
         </h3>
 
         {/* Sender Name Grid */}
@@ -969,9 +964,10 @@ const PublicBookingForm = ({ preselectedTrip = null, onBookingComplete = null })
       </section>
 
       {/* ── STEP 3: RECEIVER DETAILS ── */}
-      <section style={{ marginBottom: 32 }}>
-        <h3 style={{ fontSize: '1.15rem', fontWeight: 700, margin: '0 0 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <MapPin size={20} color="var(--primary)" /> 3. Receiver Details (Delivery Contact)
+      <section className="pub-step-box">
+        <h3 className="pub-step-title">
+          <span className="pub-step-num">3</span>
+          <MapPin size={20} color="var(--primary)" /> Receiver Details (Delivery Contact)
         </h3>
 
         {/* Receiver Name Grid */}
@@ -1167,9 +1163,10 @@ const PublicBookingForm = ({ preselectedTrip = null, onBookingComplete = null })
       </section>
 
       {/* ── STEP 4: PACKAGE & PAYMENT DETAILS ── */}
-      <section style={{ marginBottom: 32 }}>
-        <h3 style={{ fontSize: '1.15rem', fontWeight: 700, margin: '0 0 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Package size={20} color="var(--primary)" /> 4. Package &amp; Payment Preferences
+      <section className="pub-step-box">
+        <h3 className="pub-step-title">
+          <span className="pub-step-num">4</span>
+          <Package size={20} color="var(--primary)" /> Package &amp; Payment Preferences
         </h3>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16, marginBottom: 16 }}>
