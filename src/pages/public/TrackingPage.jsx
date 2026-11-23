@@ -1070,10 +1070,8 @@ const TrackingPage = ({ embedded = false }) => {
       {/* ══════════ PAGE FOOTER ══════════ */}
       {!embedded && (
       <footer className="trk-footer">
-        {dashboardPath ? (
+        {dashboardPath && (
           <p><Link to={dashboardPath} className="trk-footer-link">Go to Dashboard</Link></p>
-        ) : (
-          <p>Have an account? <Link to="/login" className="trk-footer-link">Sign In</Link></p>
         )}
         <p className="trk-footer-copy">© {new Date().getFullYear()} CargoExpress PH</p>
       </footer>

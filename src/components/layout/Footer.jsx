@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { Mail } from 'lucide-react';
 import { BrandLogo } from '../ui/BrandLogo';
 import { getGoogleMapsSearchUrl } from '../../utils/googleMaps';
@@ -6,12 +6,8 @@ import { getGoogleMapsSearchUrl } from '../../utils/googleMaps';
 /**
  * The site's one public footer — used on the About page and on the public
  * shell that wraps guest-accessible pages like /schedules and /faq (see
- * PublicShell.jsx). Every link here is a real route, not an in-page anchor:
- * this footer renders on more than one page now, so "scroll to a section on
- * this page" doesn't generalize — About-page sections are linked as
- * /about#section instead, which still lands on the right place from
- * anywhere, just without the smooth-scroll animation About page's own
- * in-page links use.
+ * PublicShell.jsx). In-page sections on the home page smoothly scroll into
+ * view when clicked while on '/', or navigate to '/#section' from other pages.
  *
  * `systemStatus`/`systemStatusLabel` are optional: only AboutPage currently
  * computes a live status (it already polls connectivity/API health as part
@@ -20,6 +16,27 @@ import { getGoogleMapsSearchUrl } from '../../utils/googleMaps';
  */
 const Footer = ({ companyName, info, systemStatus, systemStatusLabel }) => {
   const name = companyName || 'CargoExpress PH';
+  const location = useLocation();
+
+  const handleSectionClick = (e, targetId, focusId) => {
+    if (location.pathname === '/') {
+      e.preventDefault();
+      const el = document.getElementById(targetId);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (focusId) {
+          setTimeout(() => {
+            const input = document.getElementById(focusId);
+            if (input) {
+              input.focus();
+              input.select();
+            }
+          }, 350);
+        }
+        window.history.replaceState(null, '', '#' + targetId);
+      }
+    }
+  };
 
   return (
     <footer className="about-footer">
@@ -80,9 +97,27 @@ const Footer = ({ companyName, info, systemStatus, systemStatusLabel }) => {
         <div>
           <h4 className="about-footer-heading">Quick Links</h4>
           <div className="about-footer-links">
-            <Link to="/track" className="about-footer-link">Track Your Cargo</Link>
-            <Link to="/schedules" className="about-footer-link">View Trip Schedules</Link>
-            <Link to="/book" className="about-footer-link">Book a Cargo</Link>
+            <Link
+              to="/#track-section"
+              onClick={(e) => handleSectionClick(e, 'track-section', 'lx-track-input')}
+              className="about-footer-link"
+            >
+              Track Your Cargo
+            </Link>
+            <Link
+              to="/#schedules-section"
+              onClick={(e) => handleSectionClick(e, 'schedules-section')}
+              className="about-footer-link"
+            >
+              View Trip Schedules
+            </Link>
+            <Link
+              to="/#booking-section"
+              onClick={(e) => handleSectionClick(e, 'booking-section')}
+              className="about-footer-link"
+            >
+              Book a Cargo
+            </Link>
             <Link to="/faq" className="about-footer-link">FAQs</Link>
           </div>
         </div>

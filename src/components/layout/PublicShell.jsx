@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Outlet, Link, NavLink } from 'react-router-dom';
+import { Outlet, Link, useLocation } from 'react-router-dom';
 import BrandLockup from '../ui/BrandLogo';
 import Footer from './Footer';
 import { getCompanyInformation } from '../../lib/database';
@@ -7,34 +7,21 @@ import BusinessStructuredData from '../public/BusinessStructuredData';
 import { useDashboardPath } from '../../hooks/useDashboardPath';
 
 /**
- * Minimal chrome for guest-accessible pages that aren't part of the About
- * page itself (currently /schedules and /faq) — a slim top bar with the
- * brand and sign-in/sign-up (or "Go to Dashboard" once signed in), the page
- * content, and the same public Footer
- * used on About. Deliberately not CustomerLayout: that layout assumes a
- * signed-in user everywhere (avatar, notification bell, unread counts) and
- * would either break or need auth-guarding just to render for a guest.
- *
- * No live system-status indicator here (see Footer.jsx) — that's wired up
- * from About page's own data-loading effect and isn't worth duplicating for
- * two lightweight pages.
- *
- * `wide` lifts the reading-width cap for pages whose full-bleed panels lay
- * out their own columns (the home page and the 404 page). `links` adds the
- * public page links to the header; phones hide them, the footer has them.
+ * Minimal chrome for guest-accessible pages — a slim top bar with the brand,
+ * in-page section scrolling for home page ("Trip Schedules", "Track", "Book Cargo"),
+ * site page links ("Help", "About"), and "Admin Login" (or "Go to Dashboard").
  */
-const PAGE_LINKS = [
-  ['/schedules', 'Trip Schedules'],
-  ['/track', 'Track'],
-  ['/book', 'Book Cargo'],
-  ['/faq', 'Help'],
-  ['/about', 'About'],
+const NAV_ITEMS = [
+  { label: 'Trip Schedules', href: '/#schedules-section', targetId: 'schedules-section' },
+  { label: 'Track', href: '/#track-section', targetId: 'track-section', focusId: 'lx-track-input' },
+  { label: 'Book Cargo', href: '/#booking-section', targetId: 'booking-section' },
+  { label: 'Help', href: '/faq' },
+  { label: 'About', href: '/about' },
 ];
 
 const PublicShell = ({ children, wide = false, links = false }) => {
   const [company, setCompany] = useState(null);
-  // A signed-in visitor is offered their dashboard instead of being asked
-  // to log in again.
+  const location = useLocation();
   const dashboardPath = useDashboardPath();
 
   useEffect(() => {
@@ -45,16 +32,62 @@ const PublicShell = ({ children, wide = false, links = false }) => {
     return () => { mounted = false; };
   }, []);
 
+  const handleBrandClick = (e) => {
+    if (location.pathname === '/') {
+      e.preventDefault();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      window.history.replaceState(null, '', '/');
+    }
+  };
+
+  const handleNavClick = (e, item) => {
+    if (item.targetId && location.pathname === '/') {
+      e.preventDefault();
+      const el = document.getElementById(item.targetId);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (item.focusId) {
+          setTimeout(() => {
+            const input = document.getElementById(item.focusId);
+            if (input) {
+              input.focus();
+              input.select();
+            }
+          }, 350);
+        }
+        window.history.replaceState(null, '', '#' + item.targetId);
+      }
+    }
+  };
+
+  const isLinkActive = (item) => {
+    if (item.href === '/faq') return location.pathname === '/faq';
+    if (item.href === '/about') return location.pathname === '/about';
+    return false;
+  };
+
   return (
     <div className={`public-shell${links ? ' public-shell--links' : ''}`}>
       <header className="public-shell-header">
-        <Link to="/" className="public-shell-brand" aria-label="CargoExpress PH home">
+        <Link
+          to="/"
+          onClick={handleBrandClick}
+          className="public-shell-brand"
+          aria-label="CargoExpress PH home"
+        >
           <BrandLockup size={32} />
         </Link>
         {links && (
           <nav className="public-shell-pages" aria-label="Site pages">
-            {PAGE_LINKS.map(([to, label]) => (
-              <NavLink key={to} to={to} className="public-shell-page-link">{label}</NavLink>
+            {NAV_ITEMS.map((item) => (
+              <Link
+                key={item.label}
+                to={item.href}
+                onClick={(e) => handleNavClick(e, item)}
+                className={`public-shell-page-link${isLinkActive(item) ? ' active' : ''}`}
+              >
+                {item.label}
+              </Link>
             ))}
           </nav>
         )}

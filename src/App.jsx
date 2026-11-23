@@ -154,16 +154,24 @@ const RootRedirect = () => {
 
 /** Automatically scrolls to top of page on route changes.
  *  'instant' overrides base.css's global smooth-scroll: navigating from a
- *  long page should JUMP to the top, not animate through 3,000px of content. */
+ *  long page should JUMP to the top, unless an in-page hash anchor is targeted. */
 const ScrollToTop = () => {
-  const { pathname } = useLocation();
+  const { pathname, hash } = useLocation();
   useEffect(() => {
+    if (hash) {
+      const id = hash.replace('#', '');
+      const el = document.getElementById(id);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+      }
+    }
     try {
       window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
     } catch {
       window.scrollTo(0, 0);
     }
-  }, [pathname]);
+  }, [pathname, hash]);
   return null;
 };
 

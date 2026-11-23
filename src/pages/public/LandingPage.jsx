@@ -45,7 +45,7 @@ const TrackForm = () => {
   };
 
   return (
-    <form className="lx-track" action="/track" method="get" role="search" onSubmit={submit}>
+    <form id="track-section" className="lx-track" action="/track" method="get" role="search" onSubmit={submit} style={{ scrollMarginTop: 110 }}>
       <label className="lx-track-label" htmlFor="lx-track-input">Track a shipment</label>
       <div className="lx-track-field">
         <Search size={18} className="lx-track-icon" aria-hidden="true" />
@@ -98,6 +98,32 @@ const LandingPage = () => {
       });
 
     return () => { mounted = false; };
+  }, []);
+
+  useEffect(() => {
+    const handleHash = () => {
+      const hash = window.location.hash;
+      if (hash) {
+        const id = hash.replace('#', '');
+        const el = document.getElementById(id);
+        if (el) {
+          setTimeout(() => {
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            if (id === 'track-section') {
+              const input = document.getElementById('lx-track-input');
+              if (input) {
+                input.focus();
+                input.select();
+              }
+            }
+          }, 150);
+        }
+      }
+    };
+
+    handleHash();
+    window.addEventListener('hashchange', handleHash);
+    return () => window.removeEventListener('hashchange', handleHash);
   }, []);
 
   const handleSelectTrip = (trip) => {
@@ -212,9 +238,17 @@ const LandingPage = () => {
               >
                 Book with or without trip <ArrowRight size={14} />
               </button>
-              <Link to="/schedules" style={{ color: 'rgba(255,255,255,0.8)', fontSize: '0.85rem', textDecoration: 'none' }}>
+              <a
+                href="#schedules-section"
+                onClick={(e) => {
+                  e.preventDefault();
+                  document.getElementById('schedules-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  window.history.replaceState(null, '', '#schedules-section');
+                }}
+                style={{ color: 'rgba(255,255,255,0.8)', fontSize: '0.85rem', textDecoration: 'none', cursor: 'pointer' }}
+              >
                 All schedules
-              </Link>
+              </a>
             </div>
           </section>
         </div>
@@ -230,7 +264,7 @@ const LandingPage = () => {
         </div>
       </div>
 
-      <section className="lx-section lx-section-box lx-section-schedules" aria-labelledby="lx-schedules-title">
+      <section id="schedules-section" className="lx-section lx-section-box lx-section-schedules" aria-labelledby="lx-schedules-title" style={{ scrollMarginTop: 90 }}>
         <div className="lx-section-head">
           <div>
             <div className="lx-section-pill-tag">
