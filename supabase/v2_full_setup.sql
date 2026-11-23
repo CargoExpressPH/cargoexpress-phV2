@@ -1,71 +1,71 @@
 -- ============================================================
--- CargoExpress PH — HISTORICAL schema snapshot (2026-09-01)
--- NON-AUTHORITATIVE: this file predates later payment, refund, reporting,
--- subscription, and delivery migrations. Do not use it to deploy or rebuild.
--- The ordered, append-only files in supabase/migrations/ are the deployment
--- authority. Regenerate this snapshot only from a disposable database after
--- applying the complete migration sequence and comparing schema objects.
+-- CargoExpress PH — V2 STANDALONE COMPLETE SETUP
+-- Includes:
+-- 1. All baseline tables, indexes, triggers & security policies
+-- 2. V2 simplified public flow (anonymous bookings & ratings)
+-- 3. Storage buckets (cargo-photos, company-assets)
+-- 4. Initial company profile and sample upcoming trip schedules
 -- ============================================================
 
-
 -- ===================== EXTENSIONS =====================
-DO $ BEGIN CREATE EXTENSION IF NOT EXISTS "pg_cron"; EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'pg_cron skipped: %', SQLERRM; END $;
-DO $ BEGIN CREATE EXTENSION IF NOT EXISTS "pg_net"; EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'pg_net skipped: %', SQLERRM; END $;
-CREATE EXTENSION IF NOT EXISTS "pg_stat_statements";
-CREATE EXTENSION IF NOT EXISTS "pg_trgm";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
--- supabase_vault is internal; skipped
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+CREATE EXTENSION IF NOT EXISTS "pg_stat_statements";
 
-
--- ===================== 1. ACTIVITY_LOGS =====================
-CREATE TABLE IF NOT EXISTS activity_logs (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  admin_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
-  admin_name TEXT NOT NULL DEFAULT 'Unknown Admin'::text,
-  module TEXT NOT NULL CHECK (module = ANY (ARRAY['Orders'::text, 'Trips'::text, 'Payments'::text, 'Chat'::text, 'Authentication'::text, 'System'::text, 'Sales & Reports'::text, 'Customers'::text, 'Feedback'::text])),
-  action TEXT NOT NULL,
-  record_type TEXT,
-  record_id UUID,
-  record_ref TEXT,
-  previous_value JSONB,
-  new_value JSONB,
-  details TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  client_event_id UUID
-);
-
-
--- ===================== 2. ANNOUNCEMENTS =====================
-CREATE TABLE IF NOT EXISTS announcements (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  title VARCHAR(200) NOT NULL,
-  content TEXT NOT NULL,
-  author_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
-  is_active BOOLEAN DEFAULT true,
+-- ===================== 1. PROFILES =====================
+CREATE TABLE IF NOT EXISTS profiles (
+  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  name VARCHAR(100) NOT NULL,
+  email VARCHAR(100) NOT NULL UNIQUE,
+  phone VARCHAR(20) DEFAULT NULL::character varying,
+  address_lot_block VARCHAR(255) DEFAULT NULL::character varying,
+  address_street VARCHAR(255) DEFAULT NULL::character varying,
+  address_barangay VARCHAR(255) DEFAULT NULL::character varying,
+  address_city VARCHAR(255) DEFAULT NULL::character varying,
+  address_province VARCHAR(255) DEFAULT NULL::character varying,
+  role VARCHAR(20) DEFAULT 'customer'::character varying CHECK (role::text = ANY (ARRAY['admin'::character varying, 'customer'::character varying]::text[])),
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now(),
-  comments JSONB DEFAULT '[]'::jsonb,
-  send_email BOOLEAN NOT NULL DEFAULT false,
-  emailed_at TIMESTAMPTZ
+  facebook_name TEXT,
+  address_landmark TEXT,
+  wants_announcements BOOLEAN NOT NULL DEFAULT false
 );
 
 
--- ===================== 3. CHAT_MESSAGES =====================
-CREATE TABLE IF NOT EXISTS chat_messages (
+-- ===================== 2. USER_DEVICE_TOKENS =====================
+CREATE TABLE IF NOT EXISTS user_device_tokens (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-  sender_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  sender_role VARCHAR(20) NOT NULL,
-  message TEXT NOT NULL,
-  is_read BOOLEAN DEFAULT false,
-  created_at TIMESTAMPTZ DEFAULT now()
+  user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  token TEXT NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  device_id TEXT
+);
+
+
+-- ===================== 3. TRIPS =====================
+CREATE TABLE IF NOT EXISTS trips (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  trip_number VARCHAR(50) NOT NULL UNIQUE,
+  origin VARCHAR(100) NOT NULL,
+  destination VARCHAR(100) NOT NULL,
+  departure_date TIMESTAMPTZ NOT NULL,
+  arrival_date TIMESTAMPTZ,
+  capacity INTEGER DEFAULT 0,
+  price_per_kg DECIMAL(10,2) DEFAULT 0,
+  status VARCHAR(20) DEFAULT 'scheduled'::character varying CHECK (status::text = ANY (ARRAY['scheduled'::character varying, 'in_progress'::character varying, 'arrived'::character varying, 'completed'::character varying, 'cancelled'::character varying]::text[])),
+  notes TEXT,
+  created_by UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  departure_at TIMESTAMPTZ,
+  CONSTRAINT trips_arrival_after_departure CHECK (arrival_date IS NULL OR arrival_date >= departure_date)
 );
 
 
 -- ===================== 4. COMPANY_INFORMATION =====================
 CREATE TABLE IF NOT EXISTS company_information (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4() CHECK (id = '00000000-0000-0000-0000-000000000001'::uuid),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid() CHECK (id = '00000000-0000-0000-0000-000000000001'::uuid),
   name TEXT,
   short_description TEXT,
   long_description TEXT,
@@ -125,15 +125,15 @@ CREATE TABLE IF NOT EXISTS conversations (
 );
 
 
--- ===================== 7. CUSTOMER_FEEDBACK =====================
-CREATE TABLE IF NOT EXISTS customer_feedback (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  order_id UUID NOT NULL UNIQUE REFERENCES orders(id) ON DELETE CASCADE,
-  customer_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
-  rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
-  message TEXT NOT NULL,
-  is_hidden BOOLEAN NOT NULL DEFAULT false,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+-- ===================== 7. LEGAL_DOCUMENTS =====================
+CREATE TABLE IF NOT EXISTS legal_documents (
+  document_type TEXT CHECK (document_type = ANY (ARRAY['terms_of_service'::text, 'privacy_policy'::text])),
+  version TEXT CHECK (length(TRIM(BOTH FROM version)) > 0),
+  url_path TEXT NOT NULL CHECK (url_path = ANY (ARRAY['/terms'::text, '/privacy'::text])),
+  effective_at TIMESTAMPTZ NOT NULL,
+  published_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  is_current BOOLEAN NOT NULL DEFAULT false,
+  PRIMARY KEY (document_type, version)
 );
 
 
@@ -150,56 +150,7 @@ CREATE TABLE IF NOT EXISTS legal_consents (
 );
 
 
--- ===================== 9. LEGAL_DOCUMENTS =====================
-CREATE TABLE IF NOT EXISTS legal_documents (
-  document_type TEXT CHECK (document_type = ANY (ARRAY['terms_of_service'::text, 'privacy_policy'::text])),
-  version TEXT CHECK (length(TRIM(BOTH FROM version)) > 0),
-  url_path TEXT NOT NULL CHECK (url_path = ANY (ARRAY['/terms'::text, '/privacy'::text])),
-  effective_at TIMESTAMPTZ NOT NULL,
-  published_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  is_current BOOLEAN NOT NULL DEFAULT false,
-  PRIMARY KEY (document_type, version)
-);
-
-
--- ===================== 10. NOTIFICATION_DELIVERY_ATTEMPTS =====================
-CREATE TABLE IF NOT EXISTS notification_delivery_attempts (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  notification_id UUID REFERENCES notifications(id) ON DELETE SET NULL,
-  user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  device_token_id UUID REFERENCES user_device_tokens(id) ON DELETE SET NULL,
-  status VARCHAR(20) NOT NULL CHECK (status::text = ANY (ARRAY['sent'::character varying, 'failed'::character varying, 'skipped'::character varying]::text[])),
-  provider_message_id TEXT,
-  error_message TEXT,
-  attempted_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-
--- ===================== 11. NOTIFICATIONS =====================
-CREATE TABLE IF NOT EXISTS notifications (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  title VARCHAR(200) NOT NULL,
-  message TEXT NOT NULL,
-  type VARCHAR(30) DEFAULT 'general'::character varying CHECK (type::text = ANY (ARRAY['order_update'::character varying, 'trip_update'::character varying, 'announcement'::character varying, 'general'::character varying, 'inquiry'::character varying, 'feedback'::character varying, 'chat_message'::character varying, 'system_alert'::character varying]::text[])),
-  reference_id UUID,
-  is_read BOOLEAN DEFAULT false,
-  created_at TIMESTAMPTZ DEFAULT now()
-);
-
-
--- ===================== 12. ORDER_STATUS_EVENTS =====================
-CREATE TABLE IF NOT EXISTS order_status_events (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-  status VARCHAR(30) NOT NULL,
-  changed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  changed_by UUID REFERENCES profiles(id) ON DELETE SET NULL,
-  note TEXT
-);
-
-
--- ===================== 13. ORDERS =====================
+-- ===================== 9. ORDERS =====================
 CREATE TABLE IF NOT EXISTS orders (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
@@ -214,6 +165,8 @@ CREATE TABLE IF NOT EXISTS orders (
   receiver_phone VARCHAR(20) NOT NULL,
   receiver_address TEXT NOT NULL,
   package_description TEXT,
+  package_quantity INTEGER NOT NULL DEFAULT 1 CHECK (package_quantity >= 1 AND package_quantity <= 50),
+  verified_boxes INTEGER[] DEFAULT '{}'::integer[],
   actual_weight DECIMAL(10,2) DEFAULT NULL::numeric CHECK (actual_weight IS NULL OR actual_weight <= 10000::numeric),
   shipping_cost DECIMAL(10,2) DEFAULT 0,
   payer_type VARCHAR(20) DEFAULT NULL::character varying CHECK (payer_type::text = ANY (ARRAY['sender'::character varying, 'receiver'::character varying]::text[])),
@@ -250,7 +203,101 @@ CREATE TABLE IF NOT EXISTS orders (
 );
 
 
--- ===================== 14. PAYMENT_ATTEMPTS =====================
+-- ===================== 10. ORDER_STATUS_EVENTS =====================
+CREATE TABLE IF NOT EXISTS order_status_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  status VARCHAR(30) NOT NULL,
+  changed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  changed_by UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  note TEXT
+);
+
+
+-- ===================== 11. CUSTOMER_FEEDBACK =====================
+CREATE TABLE IF NOT EXISTS customer_feedback (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id UUID NOT NULL UNIQUE REFERENCES orders(id) ON DELETE CASCADE,
+  customer_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+  rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
+  message TEXT NOT NULL,
+  is_hidden BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+
+
+-- ===================== 12. CHAT_MESSAGES =====================
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  sender_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  sender_role VARCHAR(20) NOT NULL,
+  message TEXT NOT NULL,
+  is_read BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+
+-- ===================== 13. ANNOUNCEMENTS =====================
+CREATE TABLE IF NOT EXISTS announcements (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title VARCHAR(200) NOT NULL,
+  content TEXT NOT NULL,
+  author_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  comments JSONB DEFAULT '[]'::jsonb,
+  send_email BOOLEAN NOT NULL DEFAULT false,
+  emailed_at TIMESTAMPTZ
+);
+
+
+-- ===================== 14. ACTIVITY_LOGS =====================
+CREATE TABLE IF NOT EXISTS activity_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  admin_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  admin_name TEXT NOT NULL DEFAULT 'Unknown Admin'::text,
+  module TEXT NOT NULL CHECK (module = ANY (ARRAY['Orders'::text, 'Trips'::text, 'Payments'::text, 'Chat'::text, 'Authentication'::text, 'System'::text, 'Sales & Reports'::text, 'Customers'::text, 'Feedback'::text])),
+  action TEXT NOT NULL,
+  record_type TEXT,
+  record_id UUID,
+  record_ref TEXT,
+  previous_value JSONB,
+  new_value JSONB,
+  details TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  client_event_id UUID
+);
+
+
+-- ===================== 15. NOTIFICATIONS =====================
+CREATE TABLE IF NOT EXISTS notifications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  title VARCHAR(200) NOT NULL,
+  message TEXT NOT NULL,
+  type VARCHAR(30) DEFAULT 'general'::character varying CHECK (type::text = ANY (ARRAY['order_update'::character varying, 'trip_update'::character varying, 'announcement'::character varying, 'general'::character varying, 'inquiry'::character varying, 'feedback'::character varying, 'chat_message'::character varying, 'system_alert'::character varying]::text[])),
+  reference_id UUID,
+  is_read BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+
+-- ===================== 16. NOTIFICATION_DELIVERY_ATTEMPTS =====================
+CREATE TABLE IF NOT EXISTS notification_delivery_attempts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  notification_id UUID REFERENCES notifications(id) ON DELETE SET NULL,
+  user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  device_token_id UUID REFERENCES user_device_tokens(id) ON DELETE SET NULL,
+  status VARCHAR(20) NOT NULL CHECK (status::text = ANY (ARRAY['sent'::character varying, 'failed'::character varying, 'skipped'::character varying]::text[])),
+  provider_message_id TEXT,
+  error_message TEXT,
+  attempted_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+
+-- ===================== 17. PAYMENT_ATTEMPTS =====================
 CREATE TABLE IF NOT EXISTS payment_attempts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   source_id TEXT NOT NULL UNIQUE,
@@ -274,7 +321,7 @@ CREATE TABLE IF NOT EXISTS payment_attempts (
 );
 
 
--- ===================== 15. PAYMENT_TRANSACTIONS =====================
+-- ===================== 18. PAYMENT_TRANSACTIONS =====================
 CREATE TABLE IF NOT EXISTS payment_transactions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
@@ -292,24 +339,19 @@ CREATE TABLE IF NOT EXISTS payment_transactions (
 );
 
 
--- ===================== 16. PHOTO_CLEANUP_QUEUE =====================
-CREATE TABLE IF NOT EXISTS photo_cleanup_queue (
-  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  provider TEXT NOT NULL CHECK (provider = ANY (ARRAY['supabase'::text, 'firebase'::text])),
-  storage_path TEXT NOT NULL,
-  queued_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  completed_at TIMESTAMPTZ,
-  attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
-  last_error TEXT,
-  UNIQUE (provider, storage_path)
+-- ===================== 19. PHOTO_STORAGE_SETTINGS =====================
+CREATE TABLE IF NOT EXISTS photo_storage_settings (
+  id BOOLEAN PRIMARY KEY DEFAULT true CHECK (id),
+  upload_mode TEXT NOT NULL DEFAULT 'automatic'::text CHECK (upload_mode = ANY (ARRAY['automatic'::text, 'force_firebase'::text])),
+  force_firebase_expires_at TIMESTAMPTZ,
+  reason TEXT CHECK (char_length(COALESCE(reason, ''::text)) <= 500),
+  updated_by UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT force_firebase_requires_expiry CHECK (upload_mode = 'automatic'::text AND force_firebase_expires_at IS NULL OR upload_mode = 'force_firebase'::text AND force_firebase_expires_at IS NOT NULL)
 );
 
-REVOKE ALL ON TABLE public.photo_cleanup_queue FROM PUBLIC, anon, authenticated;
-GRANT SELECT, INSERT, UPDATE ON TABLE public.photo_cleanup_queue TO service_role;
-GRANT USAGE, SELECT ON SEQUENCE public.photo_cleanup_queue_id_seq TO service_role;
 
-
--- ===================== 17. PHOTO_STORAGE_EVENTS =====================
+-- ===================== 20. PHOTO_STORAGE_EVENTS =====================
 CREATE TABLE IF NOT EXISTS photo_storage_events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   event_type TEXT NOT NULL CHECK (event_type = ANY (ARRAY['upload'::text, 'mode_change'::text, 'health_check'::text, 'cleanup'::text])),
@@ -326,66 +368,73 @@ CREATE TABLE IF NOT EXISTS photo_storage_events (
 );
 
 
--- ===================== 18. PHOTO_STORAGE_SETTINGS =====================
-CREATE TABLE IF NOT EXISTS photo_storage_settings (
-  id BOOLEAN PRIMARY KEY DEFAULT true CHECK (id),
-  upload_mode TEXT NOT NULL DEFAULT 'automatic'::text CHECK (upload_mode = ANY (ARRAY['automatic'::text, 'force_firebase'::text])),
-  force_firebase_expires_at TIMESTAMPTZ,
-  reason TEXT CHECK (char_length(COALESCE(reason, ''::text)) <= 500),
-  updated_by UUID REFERENCES profiles(id) ON DELETE SET NULL,
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  CONSTRAINT force_firebase_requires_expiry CHECK (upload_mode = 'automatic'::text AND force_firebase_expires_at IS NULL OR upload_mode = 'force_firebase'::text AND force_firebase_expires_at IS NOT NULL)
+-- ===================== 21. PHOTO_CLEANUP_QUEUE =====================
+CREATE TABLE IF NOT EXISTS photo_cleanup_queue (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  provider TEXT NOT NULL CHECK (provider = ANY (ARRAY['supabase'::text, 'firebase'::text])),
+  storage_path TEXT NOT NULL,
+  queued_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  completed_at TIMESTAMPTZ,
+  attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+  last_error TEXT,
+  UNIQUE (provider, storage_path)
 );
 
-
--- ===================== 19. PROFILES =====================
-CREATE TABLE IF NOT EXISTS profiles (
-  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  name VARCHAR(100) NOT NULL,
-  email VARCHAR(100) NOT NULL UNIQUE,
-  phone VARCHAR(20) DEFAULT NULL::character varying,
-  address_lot_block VARCHAR(255) DEFAULT NULL::character varying,
-  address_street VARCHAR(255) DEFAULT NULL::character varying,
-  address_barangay VARCHAR(255) DEFAULT NULL::character varying,
-  address_city VARCHAR(255) DEFAULT NULL::character varying,
-  address_province VARCHAR(255) DEFAULT NULL::character varying,
-  role VARCHAR(20) DEFAULT 'customer'::character varying CHECK (role::text = ANY (ARRAY['admin'::character varying, 'customer'::character varying]::text[])),
-  created_at TIMESTAMPTZ DEFAULT now(),
-  updated_at TIMESTAMPTZ DEFAULT now(),
-  facebook_name TEXT,
-  address_landmark TEXT,
-  wants_announcements BOOLEAN NOT NULL DEFAULT false
-);
+REVOKE ALL ON TABLE public.photo_cleanup_queue FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT, UPDATE ON TABLE public.photo_cleanup_queue TO service_role;
+GRANT USAGE, SELECT ON SEQUENCE public.photo_cleanup_queue_id_seq TO service_role;
 
 
--- ===================== 20. TRIPS =====================
-CREATE TABLE IF NOT EXISTS trips (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  trip_number VARCHAR(50) NOT NULL UNIQUE,
-  origin VARCHAR(100) NOT NULL,
-  destination VARCHAR(100) NOT NULL,
-  departure_date TIMESTAMPTZ NOT NULL,
-  arrival_date TIMESTAMPTZ,
-  capacity INTEGER DEFAULT 0,
-  price_per_kg DECIMAL(10,2) DEFAULT 0,
-  status VARCHAR(20) DEFAULT 'scheduled'::character varying CHECK (status::text = ANY (ARRAY['scheduled'::character varying, 'in_progress'::character varying, 'arrived'::character varying, 'completed'::character varying, 'cancelled'::character varying]::text[])),
-  notes TEXT,
-  created_by UUID REFERENCES profiles(id) ON DELETE SET NULL,
-  created_at TIMESTAMPTZ DEFAULT now(),
-  updated_at TIMESTAMPTZ DEFAULT now(),
-  departure_at TIMESTAMPTZ,
-  CONSTRAINT trips_arrival_after_departure CHECK (arrival_date IS NULL OR arrival_date >= departure_date)
-);
 
+-- ============================================================
+-- CORE UTILITY FUNCTIONS (Pre-declared for dependency safety)
+-- ============================================================
 
--- ===================== 21. USER_DEVICE_TOKENS =====================
-CREATE TABLE IF NOT EXISTS user_device_tokens (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  token TEXT NOT NULL UNIQUE,
-  created_at TIMESTAMPTZ DEFAULT now(),
-  device_id TEXT
-);
+CREATE OR REPLACE FUNCTION public.global_price_per_kilo()
+ RETURNS numeric
+ LANGUAGE sql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT COALESCE((SELECT default_price_per_kg FROM public.company_information WHERE id = '00000000-0000-0000-0000-000000000001' LIMIT 1), 70);
+$function$;
+
+CREATE OR REPLACE FUNCTION public.is_admin()
+ RETURNS boolean
+ LANGUAGE sql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT EXISTS (
+    SELECT 1 FROM public.profiles
+    WHERE id = auth.uid() AND role = 'admin'
+  );
+$function$;
+
+CREATE OR REPLACE FUNCTION public.mask_name(full_name text)
+ RETURNS text
+ LANGUAGE sql
+ IMMUTABLE
+ SET search_path TO 'public'
+AS $function$
+  SELECT CASE
+    WHEN full_name IS NULL OR btrim(full_name) = '' THEN ''
+    WHEN length(btrim(full_name)) <= 2 THEN rpad(substr(btrim(full_name), 1, 1), length(btrim(full_name)), '*')
+    ELSE substr(btrim(full_name), 1, 1) || repeat('*', length(btrim(full_name)) - 2) || substr(btrim(full_name), length(btrim(full_name)), 1)
+  END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.safe_uuid(value text)
+ RETURNS uuid
+ LANGUAGE plpgsql
+ IMMUTABLE
+AS $function$
+BEGIN
+  RETURN value::uuid;
+EXCEPTION WHEN OTHERS THEN
+  RETURN NULL;
+END;
+$function$;
 
 
 -- ============================================================
@@ -446,8 +495,7 @@ BEGIN
 
   RETURN v_comments;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.auto_resolve_stale_conversations()
@@ -469,8 +517,7 @@ BEGIN
   SELECT COUNT(*) INTO v_count FROM swept;
   RETURN v_count;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.claim_contact_inquiry_push(p_inquiry_id uuid)
@@ -509,8 +556,7 @@ BEGIN
 
   RETURN v_claim_id;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.claim_push_device_registration(p_device_id text, p_token text)
@@ -539,8 +585,7 @@ BEGIN
   INSERT INTO public.user_device_tokens (user_id, device_id, token)
   VALUES (auth.uid(), v_device_id, v_token);
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.complete_contact_inquiry_push(p_inquiry_id uuid, p_claim_id uuid)
@@ -558,8 +603,7 @@ BEGIN
      AND push_dispatch_claim_id = p_claim_id
      AND push_dispatched_at IS NULL;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.create_admin_notifications_rpc(p_title text, p_message text, p_type text, p_reference_id uuid DEFAULT NULL::uuid)
@@ -649,8 +693,7 @@ BEGIN
   )
   SELECT user_id, id, v_title, v_message FROM inserted;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.derive_payment_status(p_shipping_cost numeric, p_amount_paid numeric)
@@ -668,8 +711,7 @@ AS $function$
     WHEN COALESCE(p_amount_paid, 0) >= COALESCE(p_shipping_cost, 0) - 0.005 THEN 'paid'
     ELSE 'partial'
   END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.effective_trip_price(p_trip_id uuid)
@@ -682,8 +724,7 @@ AS $function$
     (SELECT NULLIF(price_per_kg, 0) FROM public.trips WHERE id = p_trip_id),
     public.global_price_per_kilo()
   );
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.generate_order_tracking_number()
@@ -701,8 +742,7 @@ BEGIN
   END LOOP;
   RETURN candidate;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.get_effective_photo_storage_mode()
@@ -743,8 +783,7 @@ BEGIN
   SELECT v_settings.upload_mode, v_settings.force_firebase_expires_at,
          v_settings.updated_at, v_settings.updated_by, v_settings.reason;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.get_expired_evidence_orders(p_cutoff timestamp with time zone)
@@ -768,8 +807,7 @@ AS $function$
       COALESCE(o.pickup_photos, '[]'::jsonb) <> '[]'::jsonb
       OR COALESCE(o.delivery_photos, '[]'::jsonb) <> '[]'::jsonb
     );
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.get_featured_deliveries()
@@ -804,8 +842,7 @@ AS $function$
     AND o.featured_title IS NOT NULL
     AND btrim(o.featured_title) <> ''
   ORDER BY o.featured_at DESC NULLS LAST;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.get_order_status_counts()
@@ -834,8 +871,7 @@ BEGIN
   -- table does not have.
   RETURN payload;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.get_photo_storage_live_usage()
@@ -880,8 +916,7 @@ BEGIN
     now()
   FROM bucket_usage bu;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.get_photo_storage_summary()
@@ -932,8 +967,7 @@ BEGIN
     (SELECT max(created_at) FROM public.photo_storage_events WHERE event_type = 'upload' AND provider = 'supabase' AND outcome = 'success'),
     (SELECT max(created_at) FROM public.photo_storage_events WHERE event_type = 'upload' AND provider = 'firebase' AND outcome = 'success');
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.get_public_business_profile()
@@ -952,8 +986,7 @@ AS $function$
   FROM public.company_information c
   WHERE c.id = '00000000-0000-0000-0000-000000000001'
   LIMIT 1;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.get_public_feedback()
@@ -975,8 +1008,7 @@ AS $function$
   LEFT JOIN public.orders   o ON o.id = f.order_id
   WHERE f.is_hidden = false
   ORDER BY f.rating DESC, f.created_at DESC;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.get_public_order_events(p_tracking_number text)
@@ -991,8 +1023,7 @@ AS $function$
   WHERE o.tracking_number = UPPER(TRIM(p_tracking_number))
   GROUP BY e.status
   ORDER BY MIN(e.changed_at);
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.get_sales_summary()
@@ -1112,8 +1143,7 @@ BEGIN
 
   RETURN payload;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.get_trips_load(trip_ids uuid[])
@@ -1129,42 +1159,13 @@ AS $function$
   WHERE o.trip_id = ANY(trip_ids)
     AND o.status <> 'Cancelled'
   GROUP BY o.trip_id;
-$function$
+$function$;
 
 
-
-CREATE OR REPLACE FUNCTION public.gin_extract_query_trgm(text, internal, smallint, internal, internal, internal, internal)
- RETURNS internal
- LANGUAGE c
- IMMUTABLE PARALLEL SAFE STRICT
-AS '$libdir/pg_trgm', $function$gin_extract_query_trgm$function$
-
-
-
-CREATE OR REPLACE FUNCTION public.gin_extract_value_trgm(text, internal)
- RETURNS internal
- LANGUAGE c
- IMMUTABLE PARALLEL SAFE STRICT
-AS '$libdir/pg_trgm', $function$gin_extract_value_trgm$function$
-
-
-
-CREATE OR REPLACE FUNCTION public.gin_trgm_consistent(internal, smallint, text, integer, internal, internal, internal, internal)
- RETURNS boolean
- LANGUAGE c
- IMMUTABLE PARALLEL SAFE STRICT
-AS '$libdir/pg_trgm', $function$gin_trgm_consistent$function$
-
-
-
-CREATE OR REPLACE FUNCTION public.gin_trgm_triconsistent(internal, smallint, text, integer, internal, internal, internal)
- RETURNS "char"
- LANGUAGE c
- IMMUTABLE PARALLEL SAFE STRICT
-AS '$libdir/pg_trgm', $function$gin_trgm_triconsistent$function$
-
-
-
+-- internal pg_trgm C binding omitted (managed by extension)
+-- internal pg_trgm C binding omitted (managed by extension)
+-- internal pg_trgm C binding omitted (managed by extension)
+-- internal pg_trgm C binding omitted (managed by extension)
 CREATE OR REPLACE FUNCTION public.global_price_per_kilo()
  RETURNS numeric
  LANGUAGE sql
@@ -1172,98 +1173,20 @@ CREATE OR REPLACE FUNCTION public.global_price_per_kilo()
  SET search_path TO 'public'
 AS $function$
   SELECT COALESCE((SELECT default_price_per_kg FROM public.company_information WHERE id = '00000000-0000-0000-0000-000000000001' LIMIT 1), 70);
-$function$
+$function$;
 
 
-
-CREATE OR REPLACE FUNCTION public.gtrgm_compress(internal)
- RETURNS internal
- LANGUAGE c
- IMMUTABLE PARALLEL SAFE STRICT
-AS '$libdir/pg_trgm', $function$gtrgm_compress$function$
-
-
-
-CREATE OR REPLACE FUNCTION public.gtrgm_consistent(internal, text, smallint, oid, internal)
- RETURNS boolean
- LANGUAGE c
- IMMUTABLE PARALLEL SAFE STRICT
-AS '$libdir/pg_trgm', $function$gtrgm_consistent$function$
-
-
-
-CREATE OR REPLACE FUNCTION public.gtrgm_decompress(internal)
- RETURNS internal
- LANGUAGE c
- IMMUTABLE PARALLEL SAFE STRICT
-AS '$libdir/pg_trgm', $function$gtrgm_decompress$function$
-
-
-
-CREATE OR REPLACE FUNCTION public.gtrgm_distance(internal, text, smallint, oid, internal)
- RETURNS double precision
- LANGUAGE c
- IMMUTABLE PARALLEL SAFE STRICT
-AS '$libdir/pg_trgm', $function$gtrgm_distance$function$
-
-
-
-CREATE OR REPLACE FUNCTION public.gtrgm_in(cstring)
- RETURNS gtrgm
- LANGUAGE c
- IMMUTABLE PARALLEL SAFE STRICT
-AS '$libdir/pg_trgm', $function$gtrgm_in$function$
-
-
-
-CREATE OR REPLACE FUNCTION public.gtrgm_options(internal)
- RETURNS void
- LANGUAGE c
- IMMUTABLE PARALLEL SAFE
-AS '$libdir/pg_trgm', $function$gtrgm_options$function$
-
-
-
-CREATE OR REPLACE FUNCTION public.gtrgm_out(gtrgm)
- RETURNS cstring
- LANGUAGE c
- IMMUTABLE PARALLEL SAFE STRICT
-AS '$libdir/pg_trgm', $function$gtrgm_out$function$
-
-
-
-CREATE OR REPLACE FUNCTION public.gtrgm_penalty(internal, internal, internal)
- RETURNS internal
- LANGUAGE c
- IMMUTABLE PARALLEL SAFE STRICT
-AS '$libdir/pg_trgm', $function$gtrgm_penalty$function$
-
-
-
-CREATE OR REPLACE FUNCTION public.gtrgm_picksplit(internal, internal)
- RETURNS internal
- LANGUAGE c
- IMMUTABLE PARALLEL SAFE STRICT
-AS '$libdir/pg_trgm', $function$gtrgm_picksplit$function$
-
-
-
-CREATE OR REPLACE FUNCTION public.gtrgm_same(gtrgm, gtrgm, internal)
- RETURNS internal
- LANGUAGE c
- IMMUTABLE PARALLEL SAFE STRICT
-AS '$libdir/pg_trgm', $function$gtrgm_same$function$
-
-
-
-CREATE OR REPLACE FUNCTION public.gtrgm_union(internal, internal)
- RETURNS gtrgm
- LANGUAGE c
- IMMUTABLE PARALLEL SAFE STRICT
-AS '$libdir/pg_trgm', $function$gtrgm_union$function$
-
-
-
+-- internal pg_trgm C binding omitted (managed by extension)
+-- internal pg_trgm C binding omitted (managed by extension)
+-- internal pg_trgm C binding omitted (managed by extension)
+-- internal pg_trgm C binding omitted (managed by extension)
+-- internal pg_trgm C binding omitted (managed by extension)
+-- internal pg_trgm C binding omitted (managed by extension)
+-- internal pg_trgm C binding omitted (managed by extension)
+-- internal pg_trgm C binding omitted (managed by extension)
+-- internal pg_trgm C binding omitted (managed by extension)
+-- internal pg_trgm C binding omitted (managed by extension)
+-- internal pg_trgm C binding omitted (managed by extension)
 CREATE OR REPLACE FUNCTION public.guard_activity_log_insert()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -1312,8 +1235,7 @@ BEGIN
 
   RETURN NEW;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.record_activity(
@@ -1388,8 +1310,7 @@ BEGIN
 
   RETURN v_log_id;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.guard_chat_message_insert()
@@ -1417,8 +1338,7 @@ BEGIN
   
   RETURN NEW;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.guard_chat_message_update()
@@ -1464,8 +1384,7 @@ BEGIN
 
   RETURN NEW;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.guard_contact_inquiry_rate_limit()
@@ -1493,8 +1412,7 @@ BEGIN
   IF NEW.ip IS NOT NULL THEN NEW.ip := btrim(NEW.ip); END IF;
   RETURN NEW;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.guard_contact_inquiry_resolve_ownership()
@@ -1513,8 +1431,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.guard_conversation_update()
@@ -1552,8 +1469,7 @@ BEGIN
 
   RETURN NEW;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.guard_customer_order_insert()
@@ -1600,8 +1516,7 @@ BEGIN
 
   RETURN NEW;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.guard_order_update()
@@ -1683,8 +1598,7 @@ BEGIN
 
   RETURN NEW;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.guard_profile_write()
@@ -1710,8 +1624,7 @@ BEGIN
 
   RETURN NEW;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.guard_trip_status_transition()
@@ -1771,8 +1684,7 @@ BEGIN
 
   RETURN NEW;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.handle_new_user()
@@ -1827,8 +1739,7 @@ BEGIN
 
   RETURN NEW;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.is_admin()
@@ -1841,8 +1752,7 @@ AS $function$
     (SELECT role = 'admin' FROM public.profiles WHERE id = auth.uid()),
     FALSE
   );
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.is_featured_photo_path(p_path text)
@@ -1880,8 +1790,7 @@ AS $function$
         END
       ) = p_path
   );
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.is_supabase_evidence_upload_allowed(p_path text)
@@ -1899,8 +1808,7 @@ AS $function$
         TRUE
       )
     );
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.list_orphaned_evidence_photos()
@@ -1929,8 +1837,7 @@ BEGIN
       WHERE ord.tracking_number = (storage.foldername(o.name))[2]
     );
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.log_customer_chat_message()
@@ -1955,8 +1862,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.log_feedback_visibility_activity()
@@ -2000,8 +1906,7 @@ BEGIN
 
   RETURN NEW;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.log_order_status_event()
@@ -2025,8 +1930,7 @@ BEGIN
 
   RETURN NEW;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.maintain_conversation_service_state()
@@ -2092,8 +1996,7 @@ BEGIN
   PERFORM set_config('app.conversation_service_write', 'off', true);
   RETURN NEW;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.mask_name(full_name text)
@@ -2117,8 +2020,7 @@ AS $function$
         ELSE ''
       END
   END
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.log_payment_transaction_activity()
@@ -2180,8 +2082,7 @@ BEGIN
 
   RETURN NEW;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.notify_admins_of_contact_inquiry()
@@ -2207,8 +2108,7 @@ BEGIN
 
   RETURN NEW;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.ph_calendar_day(ts timestamp with time zone)
@@ -2217,8 +2117,7 @@ CREATE OR REPLACE FUNCTION public.ph_calendar_day(ts timestamp with time zone)
  IMMUTABLE PARALLEL SAFE STRICT
 AS $function$
   SELECT ((ts + INTERVAL '8 hours') AT TIME ZONE 'UTC')::date;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.prepare_order_insert()
@@ -2266,8 +2165,7 @@ BEGIN
 
   RETURN NEW;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.purge_old_activity_logs()
@@ -2280,8 +2178,7 @@ BEGIN
   DELETE FROM public.activity_logs
   WHERE created_at < now() - interval '7 days';
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.purge_old_delivery_attempts()
@@ -2295,8 +2192,7 @@ BEGIN
   DELETE FROM public.notification_delivery_attempts
   WHERE attempted_at < now() - interval '7 days';
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.queue_expired_evidence_cleanup(p_order_ids uuid[], p_items jsonb)
@@ -2349,8 +2245,7 @@ BEGIN
 
   RETURN v_order_count;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.reassign_trip(p_order_id uuid, p_new_trip_id uuid, p_reason text)
@@ -2397,8 +2292,7 @@ BEGIN
     )
   WHERE id = p_order_id;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.reconcile_paymongo_payment_attempt(p_source_id text, p_payment_id text, p_payment_amount numeric, p_payment_status text DEFAULT 'paid'::text)
@@ -2488,8 +2382,7 @@ BEGIN
 
   RETURN QUERY SELECT true, attempt_row.order_id, p_payment_id, 'Order reconciled via payment_transactions insert';
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.record_delivery_payment(p_order_id uuid, p_delivery_photos jsonb DEFAULT '[]'::jsonb, p_payment_method text DEFAULT NULL::text, p_amount numeric DEFAULT NULL::numeric, p_reference text DEFAULT NULL::text, p_payment_date date DEFAULT NULL::date, p_receipt_url text DEFAULT NULL::text, p_payment_type text DEFAULT 'Balance Settlement'::text, p_notes text DEFAULT 'Balance settlement upon delivery'::text, p_promised_payment_date date DEFAULT NULL::date)
@@ -2583,8 +2476,7 @@ BEGIN
   SELECT * INTO v_order FROM public.orders WHERE id = p_order_id;
   RETURN v_order;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.record_photo_cleanup_queue_result(p_ids bigint[], p_error text DEFAULT NULL::text)
@@ -2607,8 +2499,7 @@ BEGIN
       last_error = CASE WHEN p_error IS NULL THEN NULL ELSE left(p_error, 500) END
   WHERE id = ANY(p_ids);
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.record_pickup_payment(p_order_id uuid, p_actual_weight numeric, p_payment_method text, p_payer_type text DEFAULT 'sender'::text, p_pickup_photos jsonb DEFAULT '[]'::jsonb, p_promised_payment_date date DEFAULT NULL::date, p_amount numeric DEFAULT NULL::numeric, p_reference text DEFAULT NULL::text, p_payment_date date DEFAULT NULL::date, p_receipt_url text DEFAULT NULL::text, p_payment_type text DEFAULT 'Initial Payment'::text, p_notes text DEFAULT 'Initial pickup payment'::text)
@@ -2690,8 +2581,7 @@ BEGIN
   SELECT * INTO v_order FROM public.orders WHERE id = p_order_id;
   RETURN v_order;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.release_contact_inquiry_push(p_inquiry_id uuid, p_claim_id uuid)
@@ -2708,8 +2598,7 @@ BEGIN
      AND push_dispatch_claim_id = p_claim_id
      AND push_dispatched_at IS NULL;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.remove_push_device_registration(p_device_id text DEFAULT NULL::text, p_token text DEFAULT NULL::text)
@@ -2732,8 +2621,7 @@ BEGIN
        OR (v_token IS NOT NULL AND token = v_token)
      );
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.request_order_cancellation(p_order_id uuid, p_reason text)
@@ -2783,8 +2671,7 @@ BEGIN
 
   RETURN v_order;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.review_order_cancellation(p_order_id uuid, p_approve boolean, p_notes text DEFAULT NULL::text)
@@ -2861,8 +2748,7 @@ BEGIN
 
   RETURN v_order;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.safe_uuid(value text)
@@ -2876,8 +2762,7 @@ BEGIN
 EXCEPTION WHEN invalid_text_representation THEN
   RETURN NULL;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.search_conversation_messages(p_query text)
@@ -2927,18 +2812,10 @@ BEGIN
    ORDER BY h.created_at DESC
    LIMIT 50;
 END;
-$function$
+$function$;
 
 
-
-CREATE OR REPLACE FUNCTION public.set_limit(real)
- RETURNS real
- LANGUAGE c
- STRICT
-AS '$libdir/pg_trgm', $function$set_limit$function$
-
-
-
+-- internal pg_trgm C binding omitted (managed by extension)
 CREATE OR REPLACE FUNCTION public.set_photo_storage_mode(p_upload_mode text, p_reason text DEFAULT NULL::text, p_force_firebase_expires_at timestamp with time zone DEFAULT NULL::timestamp with time zone)
  RETURNS TABLE(upload_mode text, force_firebase_expires_at timestamp with time zone, updated_at timestamp with time zone, updated_by uuid, reason text)
  LANGUAGE plpgsql
@@ -2999,57 +2876,20 @@ BEGIN
   SELECT v_settings.upload_mode, v_settings.force_firebase_expires_at,
          v_settings.updated_at, v_settings.updated_by, v_settings.reason;
 END;
-$function$
+$function$;
 
 
-
-CREATE OR REPLACE FUNCTION public.show_limit()
- RETURNS real
- LANGUAGE c
- STABLE PARALLEL SAFE STRICT
-AS '$libdir/pg_trgm', $function$show_limit$function$
-
-
-
-CREATE OR REPLACE FUNCTION public.show_trgm(text)
- RETURNS text[]
- LANGUAGE c
- IMMUTABLE PARALLEL SAFE STRICT
-AS '$libdir/pg_trgm', $function$show_trgm$function$
-
-
-
-CREATE OR REPLACE FUNCTION public.similarity(text, text)
- RETURNS real
- LANGUAGE c
- IMMUTABLE PARALLEL SAFE STRICT
-AS '$libdir/pg_trgm', $function$similarity$function$
-
-
-
-CREATE OR REPLACE FUNCTION public.similarity_dist(text, text)
- RETURNS real
- LANGUAGE c
- IMMUTABLE PARALLEL SAFE STRICT
-AS '$libdir/pg_trgm', $function$similarity_dist$function$
-
-
-
-CREATE OR REPLACE FUNCTION public.similarity_op(text, text)
- RETURNS boolean
- LANGUAGE c
- STABLE PARALLEL SAFE STRICT
-AS '$libdir/pg_trgm', $function$similarity_op$function$
-
-
-
+-- internal pg_trgm C binding omitted (managed by extension)
+-- internal pg_trgm C binding omitted (managed by extension)
+-- internal pg_trgm C binding omitted (managed by extension)
+-- internal pg_trgm C binding omitted (managed by extension)
+-- internal pg_trgm C binding omitted (managed by extension)
 CREATE OR REPLACE FUNCTION public.stamp_conversation_resolved_at()
  RETURNS trigger
  LANGUAGE plpgsql
  SECURITY DEFINER
  SET search_path TO 'public'
-AS $function$ BEGIN IF NEW.status = 'resolved' AND OLD.status IS DISTINCT FROM 'resolved' THEN NEW.resolved_at := COALESCE(NEW.resolved_at, now()); ELSIF NEW.status <> 'resolved' THEN NEW.resolved_at := NULL; END IF; RETURN NEW; END; $function$
-
+AS $function$ BEGIN IF NEW.status = 'resolved' AND OLD.status IS DISTINCT FROM 'resolved' THEN NEW.resolved_at := COALESCE(NEW.resolved_at, now()); ELSIF NEW.status <> 'resolved' THEN NEW.resolved_at := NULL; END IF; RETURN NEW; END; $function$;
 
 
 CREATE OR REPLACE FUNCTION public.stamp_inquiry_service_state()
@@ -3057,50 +2897,14 @@ CREATE OR REPLACE FUNCTION public.stamp_inquiry_service_state()
  LANGUAGE plpgsql
  SECURITY DEFINER
  SET search_path TO 'public'
-AS $function$ BEGIN IF NEW.status IS DISTINCT FROM OLD.status THEN IF NEW.status <> 'new' THEN NEW.first_response_at := COALESCE(NEW.first_response_at, now()); END IF; IF NEW.status = 'resolved' THEN NEW.resolved_at := COALESCE(NEW.resolved_at, now()); ELSE NEW.resolved_at := NULL; END IF; END IF; RETURN NEW; END; $function$
+AS $function$ BEGIN IF NEW.status IS DISTINCT FROM OLD.status THEN IF NEW.status <> 'new' THEN NEW.first_response_at := COALESCE(NEW.first_response_at, now()); END IF; IF NEW.status = 'resolved' THEN NEW.resolved_at := COALESCE(NEW.resolved_at, now()); ELSE NEW.resolved_at := NULL; END IF; END IF; RETURN NEW; END; $function$;
 
 
-
-CREATE OR REPLACE FUNCTION public.strict_word_similarity(text, text)
- RETURNS real
- LANGUAGE c
- IMMUTABLE PARALLEL SAFE STRICT
-AS '$libdir/pg_trgm', $function$strict_word_similarity$function$
-
-
-
-CREATE OR REPLACE FUNCTION public.strict_word_similarity_commutator_op(text, text)
- RETURNS boolean
- LANGUAGE c
- STABLE PARALLEL SAFE STRICT
-AS '$libdir/pg_trgm', $function$strict_word_similarity_commutator_op$function$
-
-
-
-CREATE OR REPLACE FUNCTION public.strict_word_similarity_dist_commutator_op(text, text)
- RETURNS real
- LANGUAGE c
- IMMUTABLE PARALLEL SAFE STRICT
-AS '$libdir/pg_trgm', $function$strict_word_similarity_dist_commutator_op$function$
-
-
-
-CREATE OR REPLACE FUNCTION public.strict_word_similarity_dist_op(text, text)
- RETURNS real
- LANGUAGE c
- IMMUTABLE PARALLEL SAFE STRICT
-AS '$libdir/pg_trgm', $function$strict_word_similarity_dist_op$function$
-
-
-
-CREATE OR REPLACE FUNCTION public.strict_word_similarity_op(text, text)
- RETURNS boolean
- LANGUAGE c
- STABLE PARALLEL SAFE STRICT
-AS '$libdir/pg_trgm', $function$strict_word_similarity_op$function$
-
-
-
+-- internal pg_trgm C binding omitted (managed by extension)
+-- internal pg_trgm C binding omitted (managed by extension)
+-- internal pg_trgm C binding omitted (managed by extension)
+-- internal pg_trgm C binding omitted (managed by extension)
+-- internal pg_trgm C binding omitted (managed by extension)
 CREATE OR REPLACE FUNCTION public.sync_auth_email_to_profile()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -3116,8 +2920,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$function$
-
+$function$;
 
 
 DROP FUNCTION IF EXISTS public.track_order_public(text);
@@ -3196,8 +2999,7 @@ BEGIN
     body    := '{}'::jsonb
   );
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.trigger_photo_storage_health_check()
@@ -3227,8 +3029,7 @@ BEGIN
     body    := '{}'::jsonb
   );
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.trigger_scheduled_old_photo_cleanup()
@@ -3258,8 +3059,7 @@ BEGIN
     body    := '{}'::jsonb
   );
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.update_order_payment_totals()
@@ -3294,8 +3094,7 @@ BEGIN
 
   RETURN NULL;
 END;
-$function$
-
+$function$;
 
 
 CREATE OR REPLACE FUNCTION public.update_updated_at()
@@ -3303,50 +3102,14 @@ CREATE OR REPLACE FUNCTION public.update_updated_at()
  LANGUAGE plpgsql
  SECURITY DEFINER
  SET search_path TO 'public'
-AS $function$ BEGIN NEW.updated_at = NOW(); RETURN NEW; END; $function$
+AS $function$ BEGIN NEW.updated_at = NOW(); RETURN NEW; END; $function$;
 
 
-
-CREATE OR REPLACE FUNCTION public.word_similarity(text, text)
- RETURNS real
- LANGUAGE c
- IMMUTABLE PARALLEL SAFE STRICT
-AS '$libdir/pg_trgm', $function$word_similarity$function$
-
-
-
-CREATE OR REPLACE FUNCTION public.word_similarity_commutator_op(text, text)
- RETURNS boolean
- LANGUAGE c
- STABLE PARALLEL SAFE STRICT
-AS '$libdir/pg_trgm', $function$word_similarity_commutator_op$function$
-
-
-
-CREATE OR REPLACE FUNCTION public.word_similarity_dist_commutator_op(text, text)
- RETURNS real
- LANGUAGE c
- IMMUTABLE PARALLEL SAFE STRICT
-AS '$libdir/pg_trgm', $function$word_similarity_dist_commutator_op$function$
-
-
-
-CREATE OR REPLACE FUNCTION public.word_similarity_dist_op(text, text)
- RETURNS real
- LANGUAGE c
- IMMUTABLE PARALLEL SAFE STRICT
-AS '$libdir/pg_trgm', $function$word_similarity_dist_op$function$
-
-
-
-CREATE OR REPLACE FUNCTION public.word_similarity_op(text, text)
- RETURNS boolean
- LANGUAGE c
- STABLE PARALLEL SAFE STRICT
-AS '$libdir/pg_trgm', $function$word_similarity_op$function$
-
-
-
+-- internal pg_trgm C binding omitted (managed by extension)
+-- internal pg_trgm C binding omitted (managed by extension)
+-- internal pg_trgm C binding omitted (managed by extension)
+-- internal pg_trgm C binding omitted (managed by extension)
+-- internal pg_trgm C binding omitted (managed by extension)
 -- ============================================================
 -- FUNCTION PRIVILEGES
 -- (Only emitted for functions with non-default access.)
@@ -4100,12 +3863,10 @@ CREATE POLICY "Users can view own device tokens" ON public.user_device_tokens
 -- ============================================================
 -- STORAGE BUCKETS
 -- ============================================================
-INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-  VALUES ('cargo-photos', 'cargo-photos', false, 5242880, ARRAY['image/jpeg', 'image/png', 'image/webp'])
-  ON CONFLICT (id) DO UPDATE SET public = EXCLUDED.public, file_size_limit = EXCLUDED.file_size_limit, allowed_mime_types = EXCLUDED.allowed_mime_types;
-INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-  VALUES ('company-assets', 'company-assets', true, 5242880, ARRAY['image/jpeg', 'image/png', 'image/webp'])
-  ON CONFLICT (id) DO UPDATE SET public = EXCLUDED.public, file_size_limit = EXCLUDED.file_size_limit, allowed_mime_types = EXCLUDED.allowed_mime_types;
+-- legacy bucket insert replaced by seed below
+
+-- legacy bucket insert replaced by seed below
+
 
 
 -- ============================================================
@@ -4168,12 +3929,12 @@ CREATE POLICY "Users read own cargo photos" ON storage.objects
 -- ============================================================
 -- CRON JOBS (pg_cron)
 -- ============================================================
-DO $$ BEGIN SELECT cron.schedule('0 3 * * *', $cron$SELECT public.purge_old_activity_logs()$cron$); EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'cron schedule skipped: %', SQLERRM; END $$;
-DO $$ BEGIN SELECT cron.schedule('30 3 * * *', $cron$SELECT public.auto_resolve_stale_conversations()$cron$); EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'cron schedule skipped: %', SQLERRM; END $$;
-DO $$ BEGIN SELECT cron.schedule('0 4 * * *', $cron$SELECT public.purge_old_delivery_attempts()$cron$); EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'cron schedule skipped: %', SQLERRM; END $$;
-DO $$ BEGIN SELECT cron.schedule('0 0 * * *', $cron$SELECT public.trigger_daily_payment_reminders()$cron$); EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'cron schedule skipped: %', SQLERRM; END $$;
-DO $$ BEGIN SELECT cron.schedule('scheduled_old_photo_cleanup', '30 1 * * *', $cron$SELECT public.trigger_scheduled_old_photo_cleanup()$cron$); EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'cron schedule skipped: %', SQLERRM; END $$;
-DO $$ BEGIN SELECT cron.schedule('photo_storage_health_check', '15 */6 * * *', $cron$SELECT public.trigger_photo_storage_health_check()$cron$); EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'cron schedule skipped: %', SQLERRM; END $$;
+DO $cron_job$ BEGIN PERFORM cron.schedule('0 3 * * *', $cron$SELECT public.purge_old_activity_logs()$cron$); EXCEPTION WHEN OTHERS THEN NULL; END; $cron_job$;
+DO $cron_job$ BEGIN PERFORM cron.schedule('30 3 * * *', $cron$SELECT public.auto_resolve_stale_conversations()$cron$); EXCEPTION WHEN OTHERS THEN NULL; END; $cron_job$;
+DO $cron_job$ BEGIN PERFORM cron.schedule('0 4 * * *', $cron$SELECT public.purge_old_delivery_attempts()$cron$); EXCEPTION WHEN OTHERS THEN NULL; END; $cron_job$;
+DO $cron_job$ BEGIN PERFORM cron.schedule('0 0 * * *', $cron$SELECT public.trigger_daily_payment_reminders()$cron$); EXCEPTION WHEN OTHERS THEN NULL; END; $cron_job$;
+DO $cron_job$ BEGIN PERFORM cron.schedule('scheduled_old_photo_cleanup', '30 1 * * *', $cron$SELECT public.trigger_scheduled_old_photo_cleanup()$cron$); EXCEPTION WHEN OTHERS THEN NULL; END; $cron_job$;
+DO $cron_job$ BEGIN PERFORM cron.schedule('photo_storage_health_check', '15 */6 * * *', $cron$SELECT public.trigger_photo_storage_health_check()$cron$); EXCEPTION WHEN OTHERS THEN NULL; END; $cron_job$;
 
 
 -- ============================================================
@@ -4202,14 +3963,16 @@ COMMENT ON COLUMN public.user_device_tokens.device_id IS 'Stable browser/PWA ins
 -- REALTIME PUBLICATIONS
 -- ============================================================
 
-DO $$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE IF NOT EXISTS public.chat_messages; EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'realtime skipped: %', SQLERRM; END $$;
-DO $$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE IF NOT EXISTS public.contact_inquiries; EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'realtime skipped: %', SQLERRM; END $$;
-DO $$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE IF NOT EXISTS public.conversations; EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'realtime skipped: %', SQLERRM; END $$;
-DO $$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE IF NOT EXISTS public.notifications; EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'realtime skipped: %', SQLERRM; END $$;
-DO $$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE IF NOT EXISTS public.orders; EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'realtime skipped: %', SQLERRM; END $$;
-DO $$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE IF NOT EXISTS public.trips; EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'realtime skipped: %', SQLERRM; END $$;
-DO $$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE IF NOT EXISTS public.photo_storage_events; EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'realtime skipped: %', SQLERRM; END $$;
-DO $$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE IF NOT EXISTS public.activity_logs; EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'realtime skipped: %', SQLERRM; END $$;
+DO $pub$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE public.chat_messages; EXCEPTION WHEN OTHERS THEN NULL; END; $pub$;
+DO $pub$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE public.contact_inquiries; EXCEPTION WHEN OTHERS THEN NULL; END; $pub$;
+DO $pub$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE public.conversations; EXCEPTION WHEN OTHERS THEN NULL; END; $pub$;
+DO $pub$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE public.notifications; EXCEPTION WHEN OTHERS THEN NULL; END; $pub$;
+DO $pub$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE public.orders; EXCEPTION WHEN OTHERS THEN NULL; END; $pub$;
+DO $pub$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE public.trips; EXCEPTION WHEN OTHERS THEN NULL; END; $pub$;
+DO $pub$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE public.photo_storage_events; EXCEPTION WHEN OTHERS THEN NULL; END; $pub$;
+DO $pub$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE public.activity_logs; EXCEPTION WHEN OTHERS THEN NULL; END; $pub$;
+
+
 
 
 -- ============================================================
@@ -4281,19 +4044,17 @@ INSERT INTO public.trips (
   destination,
   departure_date,
   arrival_date,
-  max_capacity,
-  current_load,
-  rate_per_kg,
+  capacity,
+  price_per_kg,
   status
 ) VALUES 
 (
   'TRIP-' || to_char(CURRENT_DATE + INTERVAL '3 days', 'YYYYMMDD') || '-001',
   'Manila',
   'Bohol',
-  CURRENT_DATE + INTERVAL '3 days',
+  CURRENT_TIMESTAMP + INTERVAL '3 days',
   CURRENT_TIMESTAMP + INTERVAL '6 days',
   1500,
-  0,
   80,
   'scheduled'
 ),
@@ -4301,10 +4062,9 @@ INSERT INTO public.trips (
   'TRIP-' || to_char(CURRENT_DATE + INTERVAL '7 days', 'YYYYMMDD') || '-002',
   'Manila',
   'Bohol',
-  CURRENT_DATE + INTERVAL '7 days',
+  CURRENT_TIMESTAMP + INTERVAL '7 days',
   CURRENT_TIMESTAMP + INTERVAL '10 days',
   2000,
-  0,
   80,
   'scheduled'
 ),
@@ -4312,10 +4072,9 @@ INSERT INTO public.trips (
   'TRIP-' || to_char(CURRENT_DATE + INTERVAL '12 days', 'YYYYMMDD') || '-003',
   'Bohol',
   'Manila',
-  CURRENT_DATE + INTERVAL '12 days',
+  CURRENT_TIMESTAMP + INTERVAL '12 days',
   CURRENT_TIMESTAMP + INTERVAL '15 days',
   1500,
-  0,
   80,
   'scheduled'
 )
