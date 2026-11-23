@@ -1,0 +1,438 @@
+import { Suspense, useEffect } from 'react';
+import { lazyWithRetry } from './lib/lazyWithRetry';
+import PageLoader from './components/ui/PageLoader';
+import InstallAppBanner from './components/ui/InstallAppBanner';
+import IosInstallBanner from './components/ui/IosInstallBanner';
+import UpdateAvailableBanner from './components/ui/UpdateAvailableBanner';
+import RouteErrorBoundary from './components/ui/RouteErrorBoundary';
+import AuthLinkNotice from './components/ui/AuthLinkNotice';
+import PerformanceInsights from './components/ui/PerformanceInsights';
+import OfflineBoundary from './components/ui/OfflineBoundary';
+import { createBrowserRouter, RouterProvider, Navigate, Outlet, useLocation, useMatches } from 'react-router-dom';
+import useKeyboardInset, { scrollFocusedFieldIntoView } from './hooks/useKeyboardInset';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { ThemeProvider } from './contexts/ThemeContext';
+import { OfflineProvider, useNetworkState } from './contexts/OfflineContext';
+import { ToastProvider } from './hooks/useToast';
+import { resolveAuthRouteState } from './lib/authRouteState';
+import { loadCustomerHomePage } from './lib/routePreloads';
+import { isStandaloneWebApp } from './lib/apple-platform';
+import { startOnlineSync, sendQueuedPod, sendQueuedPickup } from './lib/offlineScannerQueue';
+import { recordBoxVerification } from './lib/database';
+
+// Account layouts are only needed after entering their protected routes.
+import PublicShell from './components/layout/PublicShell';
+import LandingPage from './pages/public/LandingPage';
+
+// Auth Pages — eagerly loaded (first thing users see)
+import LoginPage from './pages/auth/LoginPage';
+// Eager (not lazy): this must paint the instant the payer lands back from
+// PayMongo — a lazy chunk here would reintroduce the splash-screen wait.
+import PaymentReturnPage from './pages/shared/PaymentReturnPage';
+import { BrandLogo, BrandWordmark } from './components/ui/BrandLogo';
+
+// ─── Lazy-loaded Pages ─────────────────────────────────────────────────────
+// Each page is loaded on-demand only when the user navigates to it.
+// This splits the 826 kB bundle into smaller, route-specific chunks.
+
+const AdminLayout = lazyWithRetry(() => import('./components/layout/AdminLayout'));
+const CustomerLayout = lazyWithRetry(() => import('./components/layout/CustomerLayout'));
+const RegisterPage = lazyWithRetry(() => import('./pages/auth/RegisterPage'));
+const ForgotPasswordPage = lazyWithRetry(() => import('./pages/auth/ForgotPasswordPage'));
+const ResetPasswordPage = lazyWithRetry(() => import('./pages/auth/ResetPasswordPage'));
+
+// Customer Pages
+const HomePage = lazyWithRetry(loadCustomerHomePage);
+const CustOrdersPage = lazyWithRetry(() => import('./pages/customer/OrdersPage'));
+const CustOrderDetailPage = lazyWithRetry(() => import('./pages/customer/OrderDetailPage'));
+const BookShipmentPage = lazyWithRetry(() => import('./pages/customer/BookShipmentPage'));
+const CustTripsPage = lazyWithRetry(() => import('./pages/customer/TripsPage'));
+const NotificationsPage = lazyWithRetry(() => import('./pages/customer/NotificationsPage'));
+const CustProfilePage = lazyWithRetry(() => import('./pages/customer/ProfilePage'));
+const CustPersonalInfoPage = lazyWithRetry(() => import('./pages/customer/PersonalInfoPage'));
+const ChangePasswordPage = lazyWithRetry(() => import('./pages/shared/ChangePasswordPage'));
+const ChangeEmailPage = lazyWithRetry(() => import('./pages/shared/ChangeEmailPage'));
+const SupportChatPage = lazyWithRetry(() => import('./pages/customer/SupportChatPage'));
+const PaymentHistoryPage = lazyWithRetry(() => import('./pages/customer/PaymentHistoryPage'));
+const HelpGuidelinesPage = lazyWithRetry(() => import('./pages/customer/HelpGuidelinesPage'));
+const AboutVersionPage = lazyWithRetry(() => import('./pages/customer/AboutVersionPage'));
+
+// Admin Pages
+const DashboardPage = lazyWithRetry(() => import('./pages/admin/DashboardPage'));
+const FeedbackPage = lazyWithRetry(() => import('./pages/admin/FeedbackPage'));
+const AdminOrdersPage = lazyWithRetry(() => import('./pages/admin/OrdersPage'));
+const AdminOrderDetailPage = lazyWithRetry(() => import('./pages/admin/OrderDetailPage'));
+const AdminTripsPage = lazyWithRetry(() => import('./pages/admin/TripsPage'));
+const CreateTripPage = lazyWithRetry(() => import('./pages/admin/CreateTripPage'));
+const TripDetailPage = lazyWithRetry(() => import('./pages/admin/TripDetailPage'));
+const CustomersPage = lazyWithRetry(() => import('./pages/admin/CustomersPage'));
+const CustomerDetailPage = lazyWithRetry(() => import('./pages/admin/CustomerDetailPage'));
+const SalesReportsPage = lazyWithRetry(() => import('./pages/admin/SalesReportsPage'));
+const AnnouncementsPage = lazyWithRetry(() => import('./pages/admin/AnnouncementsPage'));
+const InboxPage = lazyWithRetry(() => import('./pages/admin/InboxPage'));
+const ContactInquiriesPage = lazyWithRetry(() => import('./pages/admin/ContactInquiriesPage'));
+const AdminProfilePage = lazyWithRetry(() => import('./pages/admin/ProfilePage'));
+const ActivityLogsPage = lazyWithRetry(() => import('./pages/admin/ActivityLogsPage'));
+const CompanyInformationPage = lazyWithRetry(() => import('./pages/admin/CompanyInformationPage'));
+const AdminCreateBookingPage = lazyWithRetry(() => import('./pages/admin/AdminCreateBookingPage'));
+const StorageMonitoringPage = lazyWithRetry(() => import('./pages/admin/StorageMonitoringPage'));
+
+// Public Pages
+const TrackingPage = lazyWithRetry(() => import('./pages/public/TrackingPage'));
+const AboutPage = lazyWithRetry(() => import('./pages/public/AboutPage'));
+const UnsubscribePage = lazyWithRetry(() => import('./pages/public/UnsubscribePage'));
+const NotFoundPage = lazyWithRetry(() => import('./pages/public/NotFoundPage'));
+const TermsPage = lazyWithRetry(() => import('./pages/public/LegalPage').then(({ TermsPage: Page }) => ({ default: Page })));
+const PrivacyPage = lazyWithRetry(() => import('./pages/public/LegalPage').then(({ PrivacyPage: Page }) => ({ default: Page })));
+
+// ─── Loading Screens ────────────────────────────────────────────────────────
+
+// Matches the splash in index.html that the generated public pages show while
+// the app starts, so the hand-over from that splash to React is seamless.
+const LoadingScreen = () => (
+  <div className="loading-screen" role="status">
+    <BrandLogo size={64} decorative className="loading-screen-logo" />
+    <BrandWordmark />
+    <span className="loading-screen-bar" aria-hidden="true" />
+    <span className="sr-only">Loading CargoExpress PH</span>
+  </div>
+);
+
+// ─── Route Guards ───────────────────────────────────────────────────────────
+
+/**
+ * `loading` flips true again after boot — a re-login, a profile refresh. Once
+ * we already hold a valid profile for the required role, honouring that flip
+ * would swap the whole authenticated subtree for <LoadingScreen/>, unmounting
+ * whatever page the user is on and destroying its state: a half-filled booking
+ * wizard included. The loading screen is for the FIRST resolve only, when
+ * there is genuinely nothing to show. After that, keep rendering what we have.
+ */
+const ProtectedRoute = ({ children, requiredRole }) => {
+  const { user, userProfile, loading } = useAuth();
+  const location = useLocation();
+  const hasUsableProfile = !!(user && userProfile && (!requiredRole || userProfile.role === requiredRole));
+  if (loading && !hasUsableProfile) return <LoadingScreen />;
+  // Carry the page the guest was actually trying to reach (pathname + its own
+  // state, e.g. a preselected trip) so LoginPage can send them straight back
+  // instead of dropping them at the generic role-based home. `from` is only
+  // ever read there — nothing else depends on it, so a route that never hits
+  // this guard keeps behaving exactly as before.
+  if (!user) return <Navigate to="/login" state={{ from: location }} replace />;
+  if (!userProfile) return <Navigate to="/login" state={{ from: location }} replace />;
+
+  if (requiredRole && userProfile.role !== requiredRole) {
+    // If role is null/undefined (profile fetch failed), send to login
+    // instead of redirecting to a role-based route that also rejects null,
+    // which would create an infinite redirect loop.
+    if (!userProfile.role) return <Navigate to="/login" replace />;
+    return <Navigate to={userProfile.role === 'admin' ? '/admin' : '/customer'} replace />;
+  }
+  return children;
+};
+
+const AuthRoute = ({ children }) => {
+  const { user, userProfile, loading, authTransition } = useAuth();
+  const routeState = resolveAuthRouteState({ user, userProfile, loading, authTransition });
+
+  // A registration owns its transition until RegisterPage has rendered the
+  // success state. Replacing it with LoadingScreen here would unmount the page,
+  // erase that local state, and later remount the form for a frame.
+  if (routeState.kind === 'loading') return <LoadingScreen />;
+  if (routeState.kind === 'redirect') return <Navigate to={routeState.to} replace />;
+  return children;
+};
+
+const RootRedirect = () => {
+  const { user, userProfile, loading } = useAuth();
+  if (loading) return <LoadingScreen />;
+  // The installed app (manifest start_url "/") is opened by people who
+  // already have an account, so a guest there goes straight to Login. In a
+  // browser, "/" stays the public home page that search engines index.
+  if (!user) {
+    if (isStandaloneWebApp()) return <Navigate to="/login" replace />;
+    return <PublicShell wide links><LandingPage /></PublicShell>;
+  }
+  if (!userProfile || !userProfile.role) return <Navigate to="/login" replace />;
+  return <Navigate to={userProfile.role === 'admin' ? '/admin' : '/customer'} replace />;
+};
+
+/** Automatically scrolls to top of page on route changes.
+ *  'instant' overrides base.css's global smooth-scroll: navigating from a
+ *  long page should JUMP to the top, not animate through 3,000px of content. */
+const ScrollToTop = () => {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    try {
+      window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+    } catch {
+      window.scrollTo(0, 0);
+    }
+  }, [pathname]);
+  return null;
+};
+
+/** Keep PWA-install overlays off public, time-sensitive tracking tasks. */
+const InstallPrompts = () => {
+  const { pathname } = useLocation();
+  const matches = useMatches();
+  if (pathname === '/' || pathname === '/track' || pathname === '/payment/return' || matches.some(match => match.id === 'not-found')) return null;
+  return <>
+    <InstallAppBanner />
+    <IosInstallBanner />
+  </>;
+};
+
+// ─── Offline tier wrappers ───────────────────────────────────────────────────
+// Tier 1 — Full offline operational (Bookings, Trips + Scanner/POD)
+const T1 = ({ children }) => (
+  <OfflineBoundary tier={1}>
+    <Suspense fallback={<PageLoader />}>{children}</Suspense>
+  </OfflineBoundary>
+);
+// Tier 2 — Cached read-only (Dashboard, Customers, schedules)
+const T2 = ({ children, label }) => (
+  <OfflineBoundary tier={2} label={label}>
+    <Suspense fallback={<PageLoader />}>{children}</Suspense>
+  </OfflineBoundary>
+);
+// Tier 3 — Online-only admin / settings modules (graceful degradation)
+const T3 = ({ children, label }) => (
+  <OfflineBoundary tier={3} label={label}>
+    <Suspense fallback={<PageLoader />}>{children}</Suspense>
+  </OfflineBoundary>
+);
+
+// ─── Root Layout (provides Suspense boundary for the entire route tree) ─────
+const RootLayout = () => {
+  const { pathname } = useLocation();
+  const isPaymentReturn = pathname === '/payment/return';
+
+  return (
+    <Suspense fallback={<LoadingScreen />}>
+      <ScrollToTop />
+      <AuthLinkNotice />
+      <PerformanceInsights />
+      <InstallPrompts />
+      {/* The public payment confirmation must stay visually isolated: no PWA
+          install or service-worker update overlay may cover its message. */}
+      {!isPaymentReturn && <UpdateAvailableBanner />}
+      <Outlet />
+    </Suspense>
+  );
+};
+
+// ─── Data Router (required for useBlocker support) ──────────────────────────
+const router = createBrowserRouter([
+  {
+    element: <RootLayout />,
+    errorElement: <RouteErrorBoundary />,
+    children: [
+      // Root
+      { path: '/', element: <RootRedirect /> },
+
+      // Public (lazy)
+      { path: '/track', element: <TrackingPage /> },
+      { path: '/about', element: <AboutPage /> },
+      { path: '/terms', element: <Suspense fallback={<PageLoader />}><TermsPage /></Suspense> },
+      { path: '/privacy', element: <Suspense fallback={<PageLoader />}><PrivacyPage /></Suspense> },
+      // Public, no-auth: the email footer "Unsubscribe" link lands here (see
+      // supabase/functions/broadcast-announcement + unsubscribe-announcements).
+      // Not behind ProtectedRoute/AuthRoute — a recipient without an account
+      // must be able to reach it.
+      { path: '/unsubscribe', element: <Suspense fallback={<PageLoader />}><UnsubscribePage /></Suspense> },
+
+      // Public — guest-accessible pages that reuse a customer page's
+      // component (no auth-dependent logic in either) under a minimal
+      // shared shell instead of the logged-in CustomerLayout. "Book a
+      // Cargo" deliberately isn't here: it stays behind ProtectedRoute,
+      // which now redirects to /login with state.from so the guard is
+      // enforced once, centrally, instead of per button/link.
+      {
+        element: <PublicShell links />,
+        children: [
+          { path: '/schedules', element: <CustTripsPage /> },
+          { path: '/faq', element: <HelpGuidelinesPage /> },
+        ],
+      },
+
+      // Auth (eager — first thing users see)
+      { path: '/login', element: <AuthRoute><LoginPage /></AuthRoute> },
+      { path: '/register', element: <AuthRoute><RegisterPage /></AuthRoute> },
+      { path: '/forgot-password', element: <AuthRoute><ForgotPasswordPage /></AuthRoute> },
+      { path: '/reset-password', element: <ResetPasswordPage /> },
+
+      // Payment return — a public Device B route. It must not be behind an
+      // auth guard and its page must not depend on the current session.
+      { path: '/payment/return', element: <PaymentReturnPage /> },
+
+      // Customer — each child page loads on demand
+      {
+        path: '/customer',
+        element: <ProtectedRoute requiredRole="customer"><CustomerLayout /></ProtectedRoute>,
+        children: [
+          // Tier 2 — cached read-only
+          { index: true, element: <T2><HomePage /></T2> },
+          { path: 'trips', element: <T2><CustTripsPage /></T2> },
+          { path: 'track', element: <T2><TrackingPage embedded /></T2> },
+          { path: 'help-guidelines', element: <T2><HelpGuidelinesPage /></T2> },
+          { path: 'about-version', element: <T2><AboutVersionPage /></T2> },
+          // Tier 1 — full offline operational (Bookings)
+          { path: 'orders', element: <T1><CustOrdersPage /></T1> },
+          { path: 'orders/:id', element: <T1><CustOrderDetailPage /></T1> },
+          { path: 'book', element: <T1><BookShipmentPage /></T1> },
+          // Tier 3 — online-only (live data / settings)
+          { path: 'notifications', element: <T3 label="Notifications"><NotificationsPage /></T3> },
+          { path: 'profile', element: <T3 label="Profile"><CustProfilePage /></T3> },
+          { path: 'personal-info', element: <T3 label="Personal Info"><CustPersonalInfoPage /></T3> },
+          { path: 'change-password', element: <T3 label="Change Password"><ChangePasswordPage /></T3> },
+          { path: 'change-email', element: <T3 label="Change Email"><ChangeEmailPage /></T3> },
+          { path: 'support', element: <T3 label="Support Chat"><SupportChatPage /></T3> },
+          { path: 'payments', element: <T3 label="Payment History"><PaymentHistoryPage /></T3> },
+          // The page was 'payment-methods' until it was renamed to Payment
+          // History. Kept as a redirect because the old path is in browser
+          // history, in the PWA's cached shell and in any link a customer
+          // saved — dropping it would 404 them rather than move them.
+          { path: 'payment-methods', element: <Navigate to="/customer/payments" replace /> },
+        ],
+      },
+
+      // Admin — each child page loads on demand
+      {
+        path: '/admin',
+        element: <ProtectedRoute requiredRole="admin"><AdminLayout /></ProtectedRoute>,
+        children: [
+          // Tier 2 — cached read-only
+          { index: true, element: <T2><DashboardPage /></T2> },
+          { path: 'customers', element: <T2><CustomersPage /></T2> },
+          { path: 'customers/:id', element: <T2><CustomerDetailPage /></T2> },
+          // Tier 1 — full offline operational (Bookings + Trips)
+          { path: 'orders', element: <T1><AdminOrdersPage /></T1> },
+          { path: 'orders/:id', element: <T1><AdminOrderDetailPage /></T1> },
+          { path: 'create-booking', element: <T1><AdminCreateBookingPage /></T1> },
+          { path: 'trips', element: <T1><AdminTripsPage /></T1> },
+          { path: 'trips/create', element: <T1><CreateTripPage /></T1> },
+          { path: 'trips/:id', element: <T1><TripDetailPage /></T1> },
+          // Tier 3 — online-only admin modules
+          { path: 'sales', element: <T3 label="Sales"><SalesReportsPage initialSection="sales" /></T3> },
+          { path: 'reports', element: <T3 label="Reports"><SalesReportsPage initialSection="reports" /></T3> },
+          { path: 'announcements', element: <T3 label="Announcements"><AnnouncementsPage /></T3> },
+          { path: 'inbox', element: <T3 label="Inbox"><InboxPage /></T3> },
+          { path: 'contact-inquiries', element: <T3 label="Contact Inquiries"><ContactInquiriesPage /></T3> },
+          { path: 'profile', element: <T3 label="Profile Settings"><AdminProfilePage /></T3> },
+          { path: 'change-email', element: <T3 label="Change Email"><ChangeEmailPage /></T3> },
+          { path: 'change-password', element: <T3 label="Change Password"><ChangePasswordPage /></T3> },
+          { path: 'activity-logs', element: <T3 label="Activity Logs"><ActivityLogsPage /></T3> },
+          { path: 'company-info', element: <T3 label="Company Information"><CompanyInformationPage /></T3> },
+          { path: 'storage-monitoring', element: <T3 label="Storage & Usage"><StorageMonitoringPage /></T3> },
+          { path: 'feedback', element: <T3 label="Customer Feedback"><FeedbackPage /></T3> },
+        ],
+      },
+
+      // 404
+      { id: 'not-found', path: '*', element: <Suspense fallback={<PageLoader />}><NotFoundPage /></Suspense> },
+    ],
+  },
+]);
+
+
+/**
+ * Defined at module scope rather than inline so the hook's subscriber identity
+ * is stable across renders. rAF-deferred because the inset changes as the
+ * keyboard animates, and measuring an element's position mid-animation reads a
+ * layout that is about to change again.
+ */
+const handleKeyboardInset = (inset) => {
+  if (inset <= 0) return;
+  requestAnimationFrame(scrollFocusedFieldIntoView);
+};
+
+function OfflineSyncManager() {
+  const { user, userProfile, isAdmin } = useAuth();
+  const { isOnline, triggerPreload } = useNetworkState();
+
+  // Global background sync for offline scans, PODs, and pickups
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const sendQueuedScan = (event) => recordBoxVerification(event.order_id, event.box_number, {
+      method: event.method || 'qr',
+      reason: event.reason || null,
+      throwOnNetworkError: true,
+    });
+    const stopSync = startOnlineSync(sendQueuedScan, () => {}, {
+      sendPod: sendQueuedPod,
+      sendPickup: sendQueuedPickup,
+    });
+    return () => stopSync();
+  }, []);
+
+  useEffect(() => {
+    if (!isOnline) return;
+    const role = isAdmin ? 'admin' : (userProfile?.role || 'customer');
+    const userId = user?.id || null;
+
+    // Run background pre-cache on mount or when auth state updates
+    triggerPreload({ role, userId });
+
+    // Periodic background sync every 5 minutes while online
+    const interval = setInterval(() => {
+      if (typeof navigator !== 'undefined' && navigator.onLine) {
+        triggerPreload({ role, userId, force: true });
+      }
+    }, 5 * 60 * 1000);
+
+    return () => clearInterval(interval);
+  }, [isOnline, isAdmin, userProfile?.role, user?.id, triggerPreload]);
+
+  return null;
+}
+
+function App() {
+  // Mounted once, at the root, so `--keyboard-inset` and `body.keyboard-open`
+  // are published on EVERY page — auth, customer and admin alike — rather than
+  // only on the one page that first needed them. Pages that want their own
+  // reaction (SupportChatPage scrolls its timeline) mount the same hook; it is
+  // a shared listener, not a second one.
+  //
+  // The callback is the global half of the fix: when the keyboard appears, any
+  // focused field it now covers is scrolled back into the visible area. The
+  // browser will not do this itself under `interactive-widget=resizes-visual`,
+  // because as far as the layout viewport is concerned the field never moved.
+  useKeyboardInset(handleKeyboardInset);
+
+  // Mounted once at the root so it covers every number input in the app,
+  // admin and customer alike, without touching each page individually.
+  // Scrolling the mouse wheel/trackpad over a focused numeric input element
+  // is the browser's built-in way to increment/decrement it — easy to
+  // trigger by accident while scrolling past one. { passive: false } is
+  // required for preventDefault() to have any effect on a wheel listener;
+  // browsers otherwise treat wheel listeners as passive by default.
+  // Note: while the cursor is directly over a focused number input, the
+  // page itself won't scroll either (that's the same default action being
+  // suppressed) — moving off the input resumes normal scrolling immediately.
+  useEffect(() => {
+    const handleWheel = (event) => {
+      const el = document.activeElement;
+      if (el?.tagName === 'INPUT' && el?.type === 'number') {
+        event.preventDefault();
+      }
+    };
+    window.addEventListener('wheel', handleWheel, { passive: false });
+    return () => window.removeEventListener('wheel', handleWheel);
+  }, []);
+
+  return (
+    <ThemeProvider>
+    <ToastProvider>
+      <OfflineProvider>
+        <AuthProvider>
+          <OfflineSyncManager />
+          <RouterProvider router={router} />
+        </AuthProvider>
+      </OfflineProvider>
+    </ToastProvider>
+    </ThemeProvider>
+  );
+}
+
+export default App;

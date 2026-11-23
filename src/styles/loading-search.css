@@ -1,0 +1,141 @@
+/* --- LOADING ----------------------------------------------------------- */
+
+.spinner {
+  width: 40px; height: 40px;
+  border: 3px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+.loading-screen {
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  min-height: 100vh; gap: 20px;
+  background: var(--bg);
+}
+.loading-screen .loading-brand {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 8px; animation: fadeIn 0.6s ease;
+}
+.loading-screen .loading-brand h1 {
+  font-size: var(--text-24); font-weight: 700;
+}
+/* The app's LoadingScreen (App.jsx): the same logo, wordmark and bar as the
+   splash in index.html, so there is no visual jump between the two. */
+.loading-screen[role="status"] { gap: 18px; }
+.loading-screen-logo {
+  box-shadow: 0 0 0 6px rgba(var(--primary-rgb), 0.12), var(--shadow-md);
+}
+.loading-screen[role="status"] .brand-wordmark { font-size: var(--text-18); }
+.loading-screen-bar {
+  position: relative;
+  overflow: hidden;
+  width: 120px;
+  height: 3px;
+  border-radius: 3px;
+  background: rgba(var(--primary-rgb), 0.16);
+}
+.loading-screen-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 40%;
+  border-radius: 3px;
+  background: var(--primary);
+  animation: loading-bar 1.1s ease-in-out infinite;
+}
+@keyframes loading-bar {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(250%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .loading-screen-bar::after { width: 100%; animation: none; }
+}
+
+.loading-screen p {
+  color: var(--text-tertiary); font-weight: 500;
+  font-size: var(--text-16);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+/* --- EMPTY STATE ------------------------------------------------------- */
+
+.empty-state {
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  width: 100%; box-sizing: border-box;
+  padding: 60px 20px; text-align: center;
+}
+.empty-state-premium {
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  width: 100%; box-sizing: border-box;
+  padding: 60px 20px; text-align: center;
+}
+.empty-state-icon-wrap {
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 20px;
+  color: var(--text-tertiary);
+}
+.empty-state-premium h3 {
+  font-size: var(--text-18); font-weight: 700;
+  margin-bottom: 8px; color: var(--text);
+}
+.empty-state-premium p {
+  color: var(--text-secondary); max-width: 360px;
+  line-height: 1.6; margin-bottom: 20px;
+}
+
+/* Compact variant for tight containers like table cells */
+.empty-state-premium.empty-state-compact {
+  min-height: 0; padding: 28px 16px;
+}
+.empty-state-premium.empty-state-compact .empty-state-icon-wrap {
+  margin-bottom: 12px;
+}
+.empty-state-premium.empty-state-compact .empty-state-icon-wrap svg {
+  width: 28px; height: 28px;
+}
+.empty-state-premium.empty-state-compact h3 {
+  font-size: var(--text-16); margin-bottom: 4px;
+}
+.empty-state-premium.empty-state-compact p {
+  font-size: var(--text-14); margin-bottom: 0;
+}
+
+/* Legacy empty state */
+.empty-state-icon { font-size: var(--text-48); margin-bottom: 16px; opacity: 0.3; }
+.empty-state h3 { font-size: var(--text-18); font-weight: 700; margin-bottom: 8px; }
+.empty-state p { color: var(--text-secondary); max-width: 400px; }
+
+/* --- SEARCH ------------------------------------------------------------ */
+
+.search-box {
+  position: relative; display: flex; align-items: center;
+}
+.search-box input {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 14px 10px 40px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-14);
+  transition: var(--transition);
+  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 94%, var(--bg) 6%);
+}
+.search-box input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-glow);
+}
+.search-box .search-icon {
+  position: absolute; left: 12px;
+  color: var(--text-tertiary); pointer-events: none;
+  transition: var(--transition-fast);
+}
+.search-box input:focus ~ .search-icon,
+.search-box input:focus + .search-icon {
+  color: var(--primary);
+}
+

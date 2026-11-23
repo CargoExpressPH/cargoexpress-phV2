@@ -1,0 +1,795 @@
+import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { X, Camera, Loader, Scale, CreditCard, Upload, Trash2, Package, CheckCircle, Tag, AlertTriangle } from 'lucide-react';
+import FocusTrap from './FocusTrap';
+import CustomSelect from './CustomSelect';
+import useScrollLock from '../../hooks/useScrollLock';
+import useFieldErrors from '../../hooks/useFieldErrors';
+import FieldError, { errorId, fieldAttrs, invalidClass } from './FieldError';
+import { formatCommaNumber, parseCommaNumber } from "../../utils/numberFormatters";
+import { sanitizeAmount, parseAmount, formatAmount } from '../../utils/currencyInput';
+import { formatPaymentMethod } from '../../utils/paymentDisplay';
+import { uploadMultiplePhotos, uploadPhoto, deletePhoto } from '../../lib/storage';
+import { serializePhotoReference } from '../../lib/photoReference';
+import { getTripCurrentWeight } from '../../lib/database';
+import { isNetworkError, fileToOfflinePhoto } from '../../lib/offlineScannerQueue';
+import { tripCapacityState, tripCapacityRefusal } from '../../constants/status';
+import PaymentCollectionPanel, {
+  createPaymentCollectionState,
+  derivePaymentCollection,
+  validatePaymentCollection,
+  buildPaymentSubmission,
+  PAYMENT_FIELDS,
+} from './PaymentCollectionPanel';
+import { orderPartyName } from '../../lib/orderParties';
+
+/** The only three reasons a discount may be given — mirrors the CHECK
+ * constraint on orders.discount_reason (see the shipping-discount migrations). */
+const DISCOUNT_REASONS = ['Regular customer', 'Negotiated price', 'Other'];
+
+/**
+ * PickupModal — Admin pickup processing.
+ *
+ * Owns what is specific to a pickup: the scale weight, who pays, the proof
+ * photos, and (admin-only) a fixed-peso shipping discount. The money itself is
+ * collected by PaymentCollectionPanel, which is the same component the
+ * delivery counter uses — it is fed the DISCOUNTED total as its
+ * `expectedAmount`, so "Full Payment" and any PayMongo/GCash checkout
+ * generated here are always against the discounted figure, never the
+ * pre-discount one.
+ *
+ * A discount is never a payment: it only narrows what PaymentCollectionPanel
+ * is billing against. It is validated authoritatively server-side by
+ * guard_order_update() / record_pickup_payment() — this modal's checks exist
+ * only to give a fast, clear message before that round trip, exactly like the
+ * rest of this form's client-side validation.
+ */
+const PickupModal = ({ order, onClose, onSave, onPreparePayment, pricePerKilo = 70 }) => {
+  useScrollLock(true); // mounted only while open
+
+  const [form, setForm] = useState({
+    actual_weight: order?.actual_weight || '',
+    package_quantity: order?.package_quantity || 1,
+    payer_type: order?.payer_type || 'sender',
+  });
+
+  const [payment, setPayment] = useState(() => createPaymentCollectionState({
+    payment_type: (order?.payment_status === 'partial' || order?.payment_status === 'unpaid' || order?.payment_method === 'paylater')
+      ? 'paylater'
+      : 'full',
+    payment_method: (order?.payment_method === 'paylater') ? '' : (order?.payment_method || ''),
+    amount: sanitizeAmount(order?.amount_paid ?? ''),
+    promised_payment_date: order?.promised_payment_date || '',
+  }));
+
+  const [photos, setPhotos] = useState([]);
+  const [photoPreviews, setPhotoPreviews] = useState([]);
+
+  const [saving, setSaving] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState('');
+  const [error, setError] = useState('');
+
+  // ── Shipping discount — OFF by default, admin-only, fixed peso amount ─────
+  // Nothing here is sent to the server unless `enabled` is true at submit —
+  // see handleSubmit, which sends discount_amount: 0 and null reason/notes
+  // whenever the toggle is off on a new pickup. A post-payment confirmation
+  // omits these optional fields so the server preserves the staged discount.
+  const existingDiscountAmount = parseAmount(order?.discount_amount ?? '') || 0;
+  const [discount, setDiscount] = useState(() => ({
+    enabled: existingDiscountAmount > 0,
+    amount: existingDiscountAmount > 0 ? String(existingDiscountAmount) : '',
+    reason: order?.discount_reason || '',
+    otherReason: order?.discount_reason === 'Other' ? (order?.discount_notes || '') : '',
+  }));
+
+  // ── Trip capacity — client-side pre-check ──────────────────────────────────
+  // record_pickup_payment() always writes actual_weight to the order in its
+  // very first step, whether the collection method is cash or GCash. For
+  // GCash that write only happens later, inside reconcile_paymongo_payment_
+  // attempt() when the webhook lands — by which point PayMongo has already
+  // captured real money. If guard_order_update() then refuses the write for
+  // exceeding the trip's capacity, that money has no order to land on and the
+  // customer is left staring at "Payment Processing" forever. Checking here,
+  // before either path is taken, is what stops that: the database trigger
+  // stays the actual authority, this only keeps the admin from starting a
+  // GCash checkout (or a cash pickup) that the trigger would refuse anyway.
+  const [tripLoad, setTripLoad] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (!order?.trip_id) { setTripLoad(0); return undefined; }
+    setTripLoad(null);
+    getTripCurrentWeight(order.trip_id, order.id)
+      .then(weight => { if (!cancelled) setTripLoad(weight); })
+      .catch(() => { if (!cancelled) setTripLoad(null); });
+    return () => { cancelled = true; };
+  }, [order?.trip_id, order?.id]);
+
+  // Field-level validation. The banner above still carries errors that belong
+  // to no single field (an upload that failed, a PayMongo refusal); anything
+  // attributable to a control is reported at that control instead.
+  const { errors, validate, clearError, setError: setFieldError, containerRef } = useFieldErrors();
+
+  const fileInputRef = useRef(null);
+
+  // ── Billing mode ─────────────────────────────────────────────────────────
+  // Freight Prepaid  (payer_type = 'sender')   → money is collected HERE, at pickup.
+  // Freight Collect  (payer_type = 'receiver') → money is collected at DELIVERY,
+  //                                              from someone who is not present now.
+  //
+  // Collect is the industry-standard COD arrangement: the carrier's security is
+  // possession of the cargo, so there is nothing to collect at pickup and the
+  // driver must never be asked to. That is why the whole payment panel is
+  // conditional on this — not merely disabled, absent.
+  const isPrepaid = form.payer_type === 'sender';
+  const hasRecordedPayment = Number(order?.amount_paid || 0) > 0 || Boolean(payment.confirmed);
+  const estimatedCost = parseFloat(form.actual_weight || 0) * pricePerKilo;
+
+  // tripLoad === null means the current load hasn't loaded yet (or failed to)
+  // — treated as "unknown", not zero, so a slow/failed fetch never falsely
+  // waves an overweight booking through.
+  const incomingWeight = parseFloat(form.actual_weight) || 0;
+  const capacityKnown = tripLoad !== null && Boolean(order?.trips);
+  const capacityCheck = capacityKnown ? tripCapacityState(order.trips, tripLoad, incomingWeight) : null;
+  const capacityExceeded = Boolean(capacityCheck?.hasLimit && incomingWeight > 0 && capacityCheck.wouldExceed);
+
+  // ── Discount math — client-side preview only; the server (guard_order_update)
+  // is the actual authority and re-validates all of this against the fee it
+  // computes itself from actual_weight. ──────────────────────────────────────
+  const discountAmountValue = discount.enabled ? (parseAmount(discount.amount) || 0) : 0;
+  // A weight/rate change after a discount was typed must never silently
+  // change the agreed discount — so this is a live flag the admin sees and
+  // must resolve, not an auto-clamp.
+  const discountExceedsFee = discount.enabled
+    && discountAmountValue > 0
+    && estimatedCost > 0
+    && discountAmountValue > estimatedCost + 0.005;
+  const finalFee = Math.max(0, Math.round((estimatedCost - discountAmountValue) * 100) / 100);
+  const noPaymentDue = isPrepaid && estimatedCost > 0 && finalFee <= 0;
+
+  // Everything the shared panel needs to know about a PICKUP specifically.
+  const paymentConfig = {
+    // The DISCOUNTED total — PayMongo/GCash and "Full Payment" are always
+    // billed against this, never the pre-discount estimatedCost.
+    expectedAmount: finalFee,
+    expectedNoun: 'total cost',
+    amountLabels: {
+      full: 'Amount Received (₱) *',
+      paylater: 'Downpayment (₱) (Optional)',
+    },
+    // The pickup figure is the CLIENT-side estimate — guard_order_update
+    // recomputes shipping_cost from the trip's own rate on save. Capping the
+    // entry against a number that is not authoritative would reject a
+    // legitimate collection, so pickup does not cap. Delivery does: its
+    // remaining_balance comes from the database.
+    capAtExpected: false,
+    purpose: 'Pickup',
+    confirmLabel: 'Confirm Pickup',
+    confirmVerb: 'confirm the pickup',
+    billing: {
+      name: orderPartyName(order, form.payer_type === 'sender' ? 'sender' : 'receiver'),
+      phone: form.payer_type === 'sender' ? order.sender_phone : order.receiver_phone,
+    },
+    sourceMetadata: {
+      actualWeight: parseFloat(form.actual_weight) || 0,
+      payerType: form.payer_type,
+    },
+    preparePayment: async () => {
+      if (hasRecordedPayment || !onPreparePayment) return;
+      await onPreparePayment({
+        actual_weight: parseFloat(form.actual_weight),
+        package_quantity: parseInt(form.package_quantity, 10) || 1,
+        payer_type: form.payer_type,
+        discount_amount: discount.enabled ? discountAmountValue : 0,
+        discount_reason: discount.enabled ? discount.reason : null,
+        discount_notes: (discount.enabled && discount.reason === 'Other')
+          ? discount.otherReason.trim()
+          : null,
+      });
+    },
+    onError: setError,
+  };
+
+  const derived = derivePaymentCollection(payment, paymentConfig);
+  // A live, unconfirmed checkout must not release the cargo — the parcel would
+  // leave while the webhook is still deciding. The panel supplies the escape
+  // hatch (cancel and pay another way) that makes locking this safe.
+  const submitLocked = isPrepaid && (payment.paymentStep === 'generating' || derived.gcashUnresolved);
+
+  const handlePhotoAdd = (e) => {
+    const newFiles = Array.from(e.target.files || []);
+    const total = photos.length + newFiles.length;
+    if (total > 3) {
+      // Belongs to the picker, not to the modal — report it there.
+      setFieldError('pickup_photos', 'Maximum 3 pickup photos allowed.');
+      return;
+    }
+
+    const validFiles = newFiles.filter(f => {
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(f.type)) {
+        setFieldError('pickup_photos', 'Only JPG, PNG, and WebP images are allowed.');
+        return false;
+      }
+      return true;
+    });
+
+    if (validFiles.length) clearError('pickup_photos');
+    setPhotos(prev => [...prev, ...validFiles]);
+
+    const newPreviews = validFiles.map(file => URL.createObjectURL(file));
+    setPhotoPreviews(prev => [...prev, ...newPreviews]);
+
+    setError('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const removePhoto = (index) => {
+    if (photoPreviews[index] && typeof photoPreviews[index] === 'string' && photoPreviews[index].startsWith('blob:')) {
+      URL.revokeObjectURL(photoPreviews[index]);
+    }
+    setPhotos(prev => prev.filter((_, i) => i !== index));
+    setPhotoPreviews(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const previewsRef = useRef([]);
+  previewsRef.current = photoPreviews;
+
+  useEffect(() => {
+    return () => {
+      previewsRef.current.forEach(url => {
+        if (url && typeof url === 'string' && url.startsWith('blob:')) {
+          URL.revokeObjectURL(url);
+        }
+      });
+    };
+  }, []);
+
+  const handleSubmit = async () => {
+    setError('');
+    setPayment(p => ({ ...p, shortfallBlocked: false }));
+
+    const parsedQty = parseInt(form.package_quantity, 10);
+    const rules = {
+      actual_weight: (!form.actual_weight || parseFloat(form.actual_weight) <= 0)
+        ? 'Enter the weight from the scale. The price is computed from it, so the parcel cannot be priced without it.'
+        : capacityExceeded
+          ? tripCapacityRefusal(order.trips, tripLoad, incomingWeight)
+          : null,
+      package_quantity: (!Number.isInteger(parsedQty) || parsedQty < 1 || parsedQty > 50)
+        ? 'Enter the confirmed number of packages/boxes (between 1 and 50).'
+        : null,
+      pickup_photos: photos.length === 0
+        ? 'Attach at least 1 photo of the parcel as pickup proof.'
+        : null,
+    };
+
+    // Discount validation — independent of payer_type: the discount reduces
+    // the ORIGINAL fee regardless of who ends up paying it, and when.
+    if (discount.enabled) {
+      if (!(discountAmountValue > 0)) {
+        rules.discount_amount = 'Enter a discount amount greater than ₱0, or turn Apply Discount off.';
+      } else if (discountExceedsFee) {
+        rules.discount_amount = `Discount cannot exceed the original fee of ₱${formatAmount(estimatedCost.toFixed(2))}. `
+          + 'Adjust the discount or re-check the weight — it is not changed for you.';
+      }
+      if (!discount.reason) {
+        rules.discount_reason = 'Select a reason for this discount.';
+      } else if (discount.reason === 'Other' && !discount.otherReason.trim()) {
+        rules.discount_notes = 'Explain the discount reason.';
+      }
+    }
+
+    // Payment validation applies to Prepaid only. On a Collect shipment there is
+    // nobody here to pay, so demanding a payment method would be nonsensical.
+    let flagShortfall = false;
+    if (isPrepaid) {
+      const result = validatePaymentCollection(payment, paymentConfig);
+      if (result.error) {
+        rules[result.field || PAYMENT_FIELDS.amount] = result.error;
+        flagShortfall = result.flagShortfall;
+      }
+    }
+
+    if (!validate(rules)) {
+      if (flagShortfall) setPayment(p => ({ ...p, shortfallBlocked: true }));
+      return;
+    }
+
+    setSaving(true);
+
+    const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+    if (isOffline) {
+      try {
+        setUploadProgress('Saving pickup data offline...');
+        const offlinePhotos = await Promise.all(photos.map(fileToOfflinePhoto));
+        let offlineReceipt = null;
+        if (payment.receiptFile) {
+          offlineReceipt = await fileToOfflinePhoto(payment.receiptFile);
+        }
+
+        const payload = {
+          actual_weight: parseFloat(form.actual_weight),
+          package_quantity: parsedQty || 1,
+          payer_type: form.payer_type,
+          pickup_photos: photoPreviews,
+          _offlinePhotos: offlinePhotos.filter(Boolean),
+          _offlineReceipt: offlineReceipt,
+          _isOffline: true,
+          ...(isPrepaid
+            ? buildPaymentSubmission(payment, paymentConfig, null)
+            : { payment_method: null, payment_reference: null, promised_payment_date: null, payment: null }),
+          ...(!hasRecordedPayment && {
+            discount_amount: discount.enabled ? discountAmountValue : 0,
+            discount_reason: discount.enabled ? discount.reason : null,
+            discount_notes: (discount.enabled && discount.reason === 'Other')
+              ? discount.otherReason.trim()
+              : null,
+          }),
+        };
+
+        await onSave(payload);
+        return;
+      } catch (offlineErr) {
+        setError(offlineErr.message || 'Could not save pickup offline.');
+        setSaving(false);
+        return;
+      }
+    }
+
+    try {
+      setUploadProgress('Uploading pickup proofs...');
+      const photoUrls = await uploadMultiplePhotos(
+        photos,
+        'pickup-proofs',
+        order.tracking_number,
+        (current, total) => setUploadProgress(`Uploading pickup proof ${current}/${total}...`),
+        order.id
+      );
+
+      let receiptUrl = null;
+      if (payment.receiptFile) {
+        setUploadProgress('Uploading receipt...');
+        let rResult;
+        try {
+          rResult = await uploadPhoto(payment.receiptFile, 'receipts', order.tracking_number, 1, order.id);
+        } catch (receiptError) {
+          await Promise.allSettled(photoUrls.map((photo) => deletePhoto(photo)));
+          throw receiptError;
+        }
+        // payment_transactions.receipt_url is TEXT, so preserve the complete descriptor as JSON.
+        receiptUrl = serializePhotoReference(rResult);
+      }
+
+      setUploadProgress('Processing Payment...');
+
+      // Order metadata only. amount_paid / remaining_balance / payment_status
+      // are absent on purpose — the payment_transactions ledger owns them and
+      // record_pickup_payment lets the trigger derive them.
+      const payload = {
+        actual_weight: parseFloat(form.actual_weight),
+        package_quantity: parsedQty || 1,
+        payer_type: form.payer_type,
+        pickup_photos: photoUrls,
+        // Freight Collect — nothing is collected at pickup. The order leaves
+        // with its full balance owing; DeliveryModal is the collection point,
+        // and no method is chosen yet because the receiver decides it there.
+        ...(isPrepaid
+          ? buildPaymentSubmission(payment, paymentConfig, receiptUrl)
+          : { payment_method: null, payment_reference: null, promised_payment_date: null, payment: null }),
+        // Discount — never send discount fields at all when a payment is
+        // already recorded; guard_order_update will throw P0001 if we try to
+        // change discount_amount on a paid order, even to the same value.
+        // When no payment exists, 0/null/null when the toggle is off.
+        ...(!hasRecordedPayment && {
+          discount_amount: discount.enabled ? discountAmountValue : 0,
+          discount_reason: discount.enabled ? discount.reason : null,
+          discount_notes: (discount.enabled && discount.reason === 'Other')
+            ? discount.otherReason.trim()
+            : null,
+        }),
+      };
+
+      await onSave(payload);
+    } catch (err) {
+      if (isNetworkError(err)) {
+        try {
+          setUploadProgress('Network dropped. Saving pickup offline...');
+          const offlinePhotos = await Promise.all(photos.map(fileToOfflinePhoto));
+          let offlineReceipt = null;
+          if (payment.receiptFile) {
+            offlineReceipt = await fileToOfflinePhoto(payment.receiptFile);
+          }
+          const payload = {
+            actual_weight: parseFloat(form.actual_weight),
+            package_quantity: parsedQty || 1,
+            payer_type: form.payer_type,
+            pickup_photos: photoPreviews,
+            _offlinePhotos: offlinePhotos.filter(Boolean),
+            _offlineReceipt: offlineReceipt,
+            _isOffline: true,
+            ...(isPrepaid
+              ? buildPaymentSubmission(payment, paymentConfig, null)
+              : { payment_method: null, payment_reference: null, promised_payment_date: null, payment: null }),
+            ...(!hasRecordedPayment && {
+              discount_amount: discount.enabled ? discountAmountValue : 0,
+              discount_reason: discount.enabled ? discount.reason : null,
+              discount_notes: (discount.enabled && discount.reason === 'Other')
+                ? discount.otherReason.trim()
+                : null,
+            }),
+          };
+          await onSave(payload);
+          return;
+        } catch {
+          // fall through to setError
+        }
+      }
+      setError(err.message);
+      setSaving(false);
+    }
+  };
+
+  const isLocked = saving || payment?.paymentStep === 'generating' || payment?.paymentStep === 'waiting';
+
+  const handleSafeClose = () => {
+    if (!isLocked) {
+      onClose();
+    }
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        handleSafeClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isLocked, onClose]);
+
+  return createPortal(
+    <FocusTrap active>
+    <div className="modal-overlay" onClick={handleSafeClose} role="dialog" aria-modal="true" aria-labelledby="pickup-modal-title">
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 560 }}>
+        <div className="modal-header">
+          <h3 id="pickup-modal-title"><Package size={18} aria-hidden="true" /> Pickup Processing</h3>
+          <button type="button" className="btn-icon btn-ghost" onClick={handleSafeClose} disabled={isLocked} aria-label="Close pickup modal"><X size={20} aria-hidden="true" /></button>
+        </div>
+
+        <div className="modal-body modal-body-scroll" ref={containerRef}>
+          {/* Order summary */}
+          <div className="pickup-summary-card flex justify-between items-center mb-20" style={{
+            background: 'var(--bg-secondary)', borderRadius: 'var(--radius-sm)', padding: 14,
+          }}>
+            <div>
+              <div className="fw-700 text-accent">{order.tracking_number}</div>
+              <div className="text-secondary" style={{ fontSize: 'var(--text-13)' }}>
+                {orderPartyName(order, 'sender')} → {orderPartyName(order, 'receiver')}
+              </div>
+            </div>
+            <div className="text-xs text-tertiary">
+              {order.package_description || 'No description'}
+            </div>
+          </div>
+
+          {error && (
+            <div className="br-8" style={{
+              background: 'var(--error-bg)', color: 'var(--error-text-strong)', padding: '10px 14px',
+              fontSize: 'var(--text-13)', marginBottom: 16, border: '1px solid var(--error)',
+            }} role="alert">
+              {error}
+            </div>
+          )}
+
+          {/* Actual Weight */}
+          <div className="form-group">
+            <label className="form-label" htmlFor="pickup-actual-weight">
+              <Scale size={14} className="inline mr-6" />
+              Actual Weight (kg) *
+            </label>
+            <input
+              id="pickup-actual-weight"
+              type="text"
+              inputMode="decimal"
+              className={`form-input ${invalidClass('actual_weight', errors)}`}
+              placeholder="Enter actual weight after weighing"
+              value={formatCommaNumber(form.actual_weight)}
+              disabled={hasRecordedPayment}
+                onChange={e => {
+                const val = parseCommaNumber(e.target.value);
+                if (isNaN(val) && val !== '.' && val !== '') return;
+                setPayment(p => ({ ...p, shortfallBlocked: false }));
+                setForm(p => ({ ...p, actual_weight: val }));
+                clearError('actual_weight');
+              }}
+              step="0.1" min="0.1"
+              {...fieldAttrs('actual_weight', errors)}
+            />
+            <FieldError name="actual_weight" errors={errors} />
+            {form.actual_weight && (
+              <div className="text-xs text-success mt-4">
+                Estimated cost: ₱{formatAmount(estimatedCost.toFixed(2))}
+              </div>
+            )}
+            {!errors.actual_weight && capacityExceeded && (
+              <div className="field-error-inline" role="alert">
+                <AlertTriangle size={13} aria-hidden="true" /> This trip is already full. Please adjust the
+                weight or assign the booking to a different trip schedule.
+                {' '}({tripCapacityRefusal(order.trips, tripLoad, incomingWeight)})
+              </div>
+            )}
+          </div>
+
+          {/* Actual Package Quantity / Box Count */}
+          <div className="form-group">
+            <label className="form-label" htmlFor="pickup-package-quantity">
+              <Package size={14} className="inline mr-6" />
+              Actual Package / Box Count *
+            </label>
+            <input
+              id="pickup-package-quantity"
+              type="number"
+              min="1"
+              max="50"
+              className={`form-input ${invalidClass('package_quantity', errors)}`}
+              placeholder="e.g. 1"
+              value={form.package_quantity}
+              disabled={hasRecordedPayment}
+              onChange={e => {
+                const val = e.target.value === '' ? '' : parseInt(e.target.value, 10);
+                setForm(p => ({ ...p, package_quantity: val }));
+                clearError('package_quantity');
+              }}
+              {...fieldAttrs('package_quantity', errors)}
+            />
+            <FieldError name="package_quantity" errors={errors} />
+            <div className="text-xs text-secondary mt-4">
+              Confirmed physical count of boxes/baggage received. Each box will require an individual QR label before trip departure.
+            </div>
+          </div>
+
+          {/* ── Shipping discount — OFF by default; admin-only, fixed peso ── */}
+          <div className="form-group">
+            <label className="flex items-center gap-8" style={{ cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={discount.enabled}
+                disabled={hasRecordedPayment}
+                onChange={e => {
+                  const enabled = e.target.checked;
+                  setDiscount(p => ({ ...p, enabled }));
+                  clearError('discount_amount'); clearError('discount_reason'); clearError('discount_notes');
+                }}
+                style={{ width: 18, height: 18, cursor: hasRecordedPayment ? 'not-allowed' : 'pointer', opacity: hasRecordedPayment ? 0.5 : 1 }}
+              />
+              <span className="form-label m-0" style={{ opacity: hasRecordedPayment ? 0.5 : 1 }}><Tag size={14} className="inline mr-6" />Apply Discount</span>
+            </label>
+            {hasRecordedPayment && (
+              <div className="text-12 text-secondary mt-4 mb-8">
+                Discount cannot be changed because a payment is already recorded.
+              </div>
+            )}
+
+            {discount.enabled && (
+              <div className="mt-12 br-8" style={{ background: 'var(--bg-secondary)', padding: 14, border: '1px solid var(--border)' }}>
+                <div className="form-group mb-12">
+                  <label className="form-label" htmlFor="pickup-discount-amount">Discount Amount (₱) *</label>
+                  <input
+                    id="pickup-discount-amount"
+                    type="text"
+                    inputMode="decimal"
+                    className={`form-input ${invalidClass('discount_amount', errors)}`}
+                    placeholder="0.00"
+                    value={formatCommaNumber(discount.amount)}
+                    onChange={e => { 
+                      const val = parseCommaNumber(e.target.value);
+                      if (isNaN(val) && val !== '.' && val !== '') return;
+                      setDiscount(p => ({ ...p, amount: val })); 
+                      clearError('discount_amount'); 
+                    }}
+                    {...fieldAttrs('discount_amount', errors)}
+                  />
+                  <FieldError name="discount_amount" errors={errors} />
+                  {!errors.discount_amount && discountExceedsFee && (
+                    <div className="field-error-inline" role="alert">
+                      <AlertTriangle size={13} aria-hidden="true" /> This exceeds the original fee of ₱{formatAmount(estimatedCost.toFixed(2))} — the weight may have changed. Adjust the discount.
+                    </div>
+                  )}
+                </div>
+
+                <div className="form-group mb-12">
+                  <label className="form-label" htmlFor="pickup-discount-reason">Reason *</label>
+                  <CustomSelect
+                    id="pickup-discount-reason"
+                    className={`form-select ${invalidClass('discount_reason', errors)}`}
+                    value={discount.reason}
+                    onChange={e => { setDiscount(p => ({ ...p, reason: e.target.value })); clearError('discount_reason'); }}
+                  >
+                    <option value="">Select a reason</option>
+                    {DISCOUNT_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+                  </CustomSelect>
+                  <FieldError name="discount_reason" errors={errors} />
+                </div>
+
+                {discount.reason === 'Other' && (
+                  <div className="form-group mb-0">
+                    <label className="form-label" htmlFor="pickup-discount-notes">Explanation *</label>
+                    <textarea
+                      id="pickup-discount-notes"
+                      className={`form-textarea ${invalidClass('discount_notes', errors)}`}
+                      rows={2}
+                      placeholder="Why is this discount being given?"
+                      value={discount.otherReason}
+                      onChange={e => { setDiscount(p => ({ ...p, otherReason: e.target.value })); clearError('discount_notes'); }}
+                      {...fieldAttrs('discount_notes', errors)}
+                    />
+                    <FieldError name="discount_notes" errors={errors} />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* ── Pricing summary — updates live as weight/discount are entered ── */}
+          {form.actual_weight && (
+            <div className="mb-16 br-8" style={{ padding: 14, border: '1px solid var(--border)' }}>
+              <div className="flex justify-between text-sm" style={{ padding: '2px 0' }}>
+                <span className="text-secondary">Original Cargo Fee</span>
+                <span>₱{formatAmount(estimatedCost.toFixed(2))}</span>
+              </div>
+              {discount.enabled && discountAmountValue > 0 && (
+                <div className="flex justify-between text-sm text-error" style={{ padding: '2px 0' }}>
+                  <span>Discount</span>
+                  <span>− ₱{formatAmount(discountAmountValue.toFixed(2))}</span>
+                </div>
+              )}
+              <div className="flex justify-between text-sm fw-700" style={{ padding: '2px 0', borderTop: '1px dashed var(--border)', marginTop: 4 }}>
+                <span>Final Cargo Fee</span>
+                <span>₱{formatAmount(finalFee.toFixed(2))}</span>
+              </div>
+              {isPrepaid && (
+                <>
+                  <div className="flex justify-between text-sm text-success" style={{ padding: '2px 0' }}>
+                    <span>Amount Received</span>
+                    <span>₱{formatAmount((derived.collected || 0).toFixed(2))}</span>
+                  </div>
+                  <div className="flex justify-between text-sm fw-700" style={{ padding: '2px 0' }}>
+                    <span>Remaining Balance</span>
+                    <span>₱{formatAmount(Math.max(0, finalFee - (derived.collected || 0)).toFixed(2))}</span>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* ── Billing mode — decides whether we collect anything at all ── */}
+          <div className="form-group">
+            <label className="form-label">
+              <CreditCard size={14} className="inline mr-6" />
+              Who Pays? *
+            </label>
+            <div className="pickup-segment-row flex gap-8">
+              {['sender', 'receiver'].map(t => (
+                <button
+                  key={t} type="button"
+                  className={`btn ${form.payer_type === t ? 'btn-secondary' : 'btn-outline'} btn-sm flex-1 justify-center`}
+                  onClick={() => setForm(p => ({ ...p, payer_type: t }))}
+                >
+                  {t === 'sender' ? 'Sender (pay now)' : 'Receiver (pay on delivery)'}
+                </button>
+              ))}
+            </div>
+            {/* What the customer selected when placing the booking. */}
+            {(order?.payer_type || order?.payment_preference) && (
+              <div className="text-xs text-secondary mt-4">
+                Customer selected: <strong>{(order.payer_type || 'sender') === 'receiver' ? 'Receiver pays' : 'Sender pays'}</strong>
+                {order.payment_preference && order.payment_preference !== 'unspecified' && (
+                  <> · Preferred method: <strong>{formatPaymentMethod(order.payment_preference)}</strong></>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* ── Freight Collect: nothing to collect here ── */}
+          {!isPrepaid && (
+            <div className="mb-16 br-8" style={{ background: 'var(--info-bg, var(--bg-secondary))', padding: 14, border: '1px solid var(--info, var(--border))'}}>
+              <div className="mb-4 font-semibold" style={{ fontSize: 'var(--text-13)' }}>
+                <Package size={14} className="inline mr-6" />
+                Freight Collect — no payment at pickup
+              </div>
+              <div className="text-xs text-secondary">
+                {finalFee > 0 ? <>₱{formatAmount(finalFee.toFixed(2))} will be collected from </> : <>The freight charge will be collected from </>}
+                <strong>{orderPartyName(order, 'receiver') || 'the receiver'}</strong> on delivery.
+                Weigh the parcel, take the proof photos, and confirm — there is nothing to collect now.
+              </div>
+            </div>
+          )}
+
+          {/* ── Prepaid, fully covered by the discount: nothing to collect ── */}
+          {isPrepaid && noPaymentDue && (
+            <div className="mb-16 br-8" style={{ background: 'var(--success-bg)', padding: 14, border: '1px solid var(--success)' }}>
+              <div className="flex items-center gap-8 font-semibold" style={{ fontSize: 'var(--text-13)', color: 'var(--success-text)' }}>
+                <CheckCircle size={16} aria-hidden="true" /> No payment due
+              </div>
+              <div className="text-xs mt-4" style={{ color: 'var(--success-text)' }}>
+                The discount covers the full ₱{formatAmount(estimatedCost.toFixed(2))} fee. No payment method or
+                amount is needed — confirming pickup will not create a payment record.
+              </div>
+            </div>
+          )}
+
+          {/* ── Prepaid, something still owed: the shared collection panel ── */}
+          {isPrepaid && !noPaymentDue && (
+            <PaymentCollectionPanel
+              order={order}
+              value={payment}
+              setValue={setPayment}
+              config={paymentConfig}
+              disabled={saving || capacityExceeded}
+              errors={errors}
+              clearError={clearError}
+            />
+          )}
+
+          {/* Pickup Proofs */}
+          <div className="form-group mt-16 mb-0">
+            <label className="form-label" id="pickup-photos-label">
+              <Camera size={14} className="inline mr-6" />
+              Pickup Proof Photos * (1-3)
+            </label>
+            <div
+              className={`flex gap-10 flex-wrap mt-8 ${errors.pickup_photos ? 'field-group-invalid' : ''}`}
+              role="group"
+              aria-labelledby="pickup-photos-label"
+              aria-invalid={errors.pickup_photos ? 'true' : undefined}
+              aria-describedby={errors.pickup_photos ? errorId('pickup_photos') : undefined}
+              tabIndex={errors.pickup_photos ? -1 : undefined}
+            >
+              {photoPreviews.map((preview, i) => (
+                <div key={i} className="relative overflow-hidden br-8" style={{ width: 90, height: 90, border: '2px solid var(--border)'}}>
+                  <img src={preview} alt={`Photo ${i + 1}`} className="w-full h-full object-cover" />
+                  <button type="button" onClick={() => removePhoto(i)} className="pickup-photo-remove-btn" aria-label={`Remove photo ${i + 1}`}>
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              ))}
+              {photos.length < 3 && (
+                <button
+                  type="button" onClick={() => fileInputRef.current?.click()}
+                  className="br-8 flex flex-col items-center justify-center cursor-pointer text-tertiary"
+                  style={{
+                    width: 90, height: 90, border: '2px dashed var(--border)',
+                    background: 'var(--bg-secondary)', gap: 4, fontSize: 'var(--text-12)'
+                  }}
+                >
+                  <Upload size={20} /> Add Photo
+                </button>
+              )}
+            </div>
+            <FieldError name="pickup_photos" errors={errors} />
+            <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" multiple onChange={handlePhotoAdd} style={{ display: 'none' }} />
+          </div>
+        </div>
+
+        <div className="modal-footer">
+          <button className="btn btn-outline" onClick={handleSafeClose} disabled={isLocked}>Cancel</button>
+          <button
+            className="btn btn-primary"
+            onClick={handleSubmit}
+            disabled={saving || submitLocked || capacityExceeded}
+            title={capacityExceeded
+              ? 'This trip is full — adjust the weight or assign a different trip.'
+              : (submitLocked && payment.paymentStep === 'waiting'
+                ? 'Waiting for the GCash payment to be confirmed or cancelled'
+                : undefined)}
+          >
+            {saving ? <><Loader size={16} className="animate-spin" /> {uploadProgress || 'Processing...'}</> : <><CheckCircle size={16} /> Confirm Pickup</>}
+          </button>
+        </div>
+      </div>
+    </div>
+    </FocusTrap>,
+    document.body
+  );
+};
+
+export default PickupModal;

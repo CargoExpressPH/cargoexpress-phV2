@@ -1,0 +1,314 @@
+import {
+  ORDER_STATUS,
+  finalShippingFee,
+  isOrderPriced,
+  outstandingBalance,
+} from '../constants/status';
+import { phDateKey } from '../utils/datetime';
+import { orderPartyName } from './orderParties';
+
+/**
+ * 'YYYY-MM' of the Manila calendar day a trip departs. departure_date is a
+ * bare date or a timestamptz holding Manila midnight, which the API returns
+ * in UTC ("2026-09-30T16:00:00+00:00" for an Oct 1 departure), so slicing the
+ * raw string would file trips on the 1st under the previous month.
+ */
+export const tripMonthKey = (trip) => phDateKey(trip?.departure_date).slice(0, 7);
+
+const REFUND_PENDING_STATUSES = new Set(['creating', 'pending', 'processing']);
+
+const toCents = (value) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.round(number * 100) : 0;
+};
+
+const fromCents = (value) => value / 100;
+
+const addCents = (left, right) => left + right;
+
+const amountFromActivity = (activity) => {
+  if (activity?.amount !== undefined && activity?.amount !== null) {
+    return Math.abs(toCents(activity.amount));
+  }
+  return Math.abs(toCents(activity?.financial_amount));
+};
+
+/**
+ * The database helper returns the canonical merged payment activity rows:
+ * successful payments have positive financial_amount, successful refunds have
+ * negative financial_amount, and failed/pending attempts have zero financial
+ * impact. Keeping this reduction here makes the report immune to duplicate
+ * joins and keeps pending/failed refunds out of money-returned totals.
+ */
+export const summarizeTripPaymentActivity = (activity = []) => {
+  let paymentsReceived = 0;
+  let moneyReturned = 0;
+  let refundPending = 0;
+  let refundFailed = 0;
+  let refundUncertain = 0;
+
+  for (const row of activity || []) {
+    const financial = toCents(row?.financial_amount);
+    if (row?.is_refund) {
+      const status = row.refund_status || row.payment_status;
+      const amount = amountFromActivity(row);
+
+      if (status === 'succeeded' || status === 'refunded' || financial < 0) {
+        moneyReturned = addCents(moneyReturned, amount);
+      } else if (status === 'uncertain' || row?.outcome_uncertain) {
+        refundUncertain = addCents(refundUncertain, amount);
+      } else if (REFUND_PENDING_STATUSES.has(status)) {
+        refundPending = addCents(refundPending, amount);
+      } else if (status === 'failed') {
+        refundFailed = addCents(refundFailed, amount);
+      }
+      continue;
+    }
+
+    if (!row?.is_payment_attempt && financial > 0) {
+      paymentsReceived = addCents(paymentsReceived, financial);
+    }
+  }
+
+  return {
+    paymentsReceived: fromCents(paymentsReceived),
+    moneyReturned: fromCents(moneyReturned),
+    paymentsAfterRefunds: fromCents(paymentsReceived - moneyReturned),
+    refundPending: fromCents(refundPending),
+    refundFailed: fromCents(refundFailed),
+    refundUncertain: fromCents(refundUncertain),
+  };
+};
+
+const cancellationLabel = (summary) => {
+  if (!summary || summary.invariants_valid === false) return 'Needs review';
+  switch (summary.settlement_status) {
+    case 'refund_due':
+      return 'Refund due';
+    case 'refund_pending':
+      return 'Refund processing';
+    case 'refund_settled':
+      return 'Settled';
+    default:
+      return 'Needs review';
+  }
+};
+
+const cancellationDecision = (order, summary, financials) => {
+  const confirmed = Boolean(summary?.has_confirmed_decision);
+  const settlementStatus = cancellationLabel(summary);
+  const invalid = summary?.invariants_valid === false;
+  const retainedFee = confirmed && !invalid && summary.agreed_cancellation_fee !== null
+    && summary.agreed_cancellation_fee !== undefined
+    ? Number(summary.agreed_cancellation_fee)
+    : null;
+  const amountStillToRefund = confirmed && !invalid
+    && summary.refund_still_due !== null
+    && summary.refund_still_due !== undefined
+    ? Number(summary.refund_still_due)
+    : null;
+  const netRetained = Number.isFinite(Number(summary?.net_retained))
+    ? Number(summary.net_retained)
+    : financials.paymentsAfterRefunds;
+
+  return {
+    order,
+    settlementStatus,
+    confirmedCancellation: confirmed,
+    retainedFee,
+    amountStillToRefund,
+    netRetained,
+    refundPending: financials.refundPending,
+    refundFailed: financials.refundFailed,
+    refundUncertain: financials.refundUncertain,
+    needsReview: settlementStatus === 'Needs review',
+    dataInconsistent: invalid,
+  };
+};
+
+const activePaymentStatus = (order, financials, amountStillToPay, priced) => {
+  if (!priced) return 'Not priced yet';
+  if (amountStillToPay <= 0) return 'Paid in full';
+  if (financials.paymentsReceived > 0 || Number(order?.amount_paid || 0) > 0) {
+    return 'Partly paid';
+  }
+  return 'Unpaid';
+};
+
+const buildRow = (order, activity, settlementSummary) => {
+  const financials = summarizeTripPaymentActivity(activity);
+  const cancelled = order.status === ORDER_STATUS.CANCELLED;
+  const priced = isOrderPriced(order);
+
+  if (cancelled) {
+    return {
+      id: order.id,
+      order,
+      trackingNumber: order.tracking_number,
+      customerName: order.profiles?.name || orderPartyName(order, 'sender') || 'Customer not named',
+      status: order.status,
+      ...financials,
+      cancellation: cancellationDecision(order, settlementSummary, financials),
+      isPriced: priced,
+    };
+  }
+
+  const shippingFee = priced ? finalShippingFee(order) : null;
+  const amountStillToPay = priced ? outstandingBalance(order) : null;
+  return {
+    id: order.id,
+    order,
+    trackingNumber: order.tracking_number,
+    customerName: order.profiles?.name || orderPartyName(order, 'sender') || 'Customer not named',
+    status: order.status,
+    ...financials,
+    shippingFee,
+    amountStillToPay,
+    paymentStatus: activePaymentStatus(order, financials, amountStillToPay || 0, priced),
+    isPriced: priced,
+    isCompleted: order.status === ORDER_STATUS.DELIVERED,
+  };
+};
+
+const sumRows = (rows, field) => rows.reduce((total, row) => addCents(total, toCents(row[field])), 0);
+
+/**
+ * Pure report calculation used by both the UI and the fixture contract test.
+ * `orders` are the rows assigned to the selected trip; no calendar-date filter
+ * belongs here because the report basis is the booking's trip assignment.
+ */
+export const buildPerTripSalesReport = ({
+  trip,
+  orders = [],
+  activityByOrder = {},
+  settlementsByOrder = {},
+}) => {
+  const rows = orders.map(order => buildRow(
+    order,
+    activityByOrder[order.id] || [],
+    settlementsByOrder[order.id],
+  ));
+  const activeRows = rows.filter(row => row.status !== ORDER_STATUS.CANCELLED);
+  const cancelledRows = rows.filter(row => row.status === ORDER_STATUS.CANCELLED);
+  const reviewRows = cancelledRows.filter(row => row.cancellation.needsReview);
+  const dataInconsistent = rows.some(row => row.cancellation?.dataInconsistent);
+
+  const paymentsReceivedCents = sumRows(rows, 'paymentsReceived');
+  const moneyReturnedCents = sumRows(rows, 'moneyReturned');
+  const cancelledAwaitingDecisionCents = reviewRows.reduce((total, row) => {
+    const amount = toCents(row.cancellation.netRetained);
+    return amount > 0 ? addCents(total, amount) : total;
+  }, 0);
+
+  const shippingFeesCents = activeRows.reduce((total, row) => (
+    row.shippingFee === null ? total : addCents(total, toCents(row.shippingFee))
+  ), 0);
+  const amountStillToCollectCents = activeRows.reduce((total, row) => (
+    row.amountStillToPay === null ? total : addCents(total, toCents(row.amountStillToPay))
+  ), 0);
+
+  return {
+    trip,
+    rows,
+    activeRows,
+    cancelledRows,
+    summary: {
+      shippingFees: fromCents(shippingFeesCents),
+      paymentsReceived: fromCents(paymentsReceivedCents),
+      moneyReturned: fromCents(moneyReturnedCents),
+      paymentsAfterRefunds: fromCents(paymentsReceivedCents - moneyReturnedCents),
+      amountStillToCollect: fromCents(amountStillToCollectCents),
+      activeBookingCount: activeRows.length,
+      completedBookingCount: activeRows.filter(row => row.isCompleted).length,
+      cancelledBookingCount: cancelledRows.length,
+      unpricedActiveCount: activeRows.filter(row => !row.isPriced).length,
+      cancelledMoneyAwaitingDecision: fromCents(cancelledAwaitingDecisionCents),
+      cancelledReviewCount: reviewRows.length,
+      pendingRefundAmount: fromCents(sumRows(rows, 'refundPending')),
+      failedRefundAmount: fromCents(sumRows(rows, 'refundFailed')),
+      uncertainRefundAmount: fromCents(sumRows(rows, 'refundUncertain')),
+      dataInconsistent,
+    },
+    basis: 'Shows recorded payments and refunds for bookings assigned to this trip, regardless of payment date.',
+    assignmentNote: 'This report uses each booking’s current trip assignment. Reassigned bookings appear only under their current trip. A cancelled booking with no current assignment cannot be placed here reliably.',
+  };
+};
+
+/**
+ * Determines whether a trip report has zero bookings and zero financial activity.
+ * Cancelled trips with no bookings and no financial records / refunds are excluded
+ * from the sales report to prevent blank clutter. Cancelled trips with refunds/settlements
+ * are preserved for financial audit integrity.
+ */
+export const isTripReportEmpty = (tripReport) => {
+  if (!tripReport) return true;
+  const { trip, activeRows = [], cancelledRows = [], summary = {} } = tripReport;
+
+  // Has active non-cancelled cargo bookings
+  if (activeRows.length > 0) return false;
+
+  // Has any recorded monetary transactions (revenue, payments, refunds, balances)
+  const hasMoney = (
+    Math.abs(Number(summary.shippingFees) || 0) > 0 ||
+    Math.abs(Number(summary.paymentsReceived) || 0) > 0 ||
+    Math.abs(Number(summary.moneyReturned) || 0) > 0 ||
+    Math.abs(Number(summary.amountStillToCollect) || 0) > 0 ||
+    Math.abs(Number(summary.pendingRefundAmount) || 0) > 0 ||
+    Math.abs(Number(summary.cancelledMoneyAwaitingDecision) || 0) > 0
+  );
+  if (hasMoney) return false;
+
+  // Has cancelled bookings with financial activity (refunds to process, refunded amounts, or retained fees)
+  const hasCancelledFinancials = cancelledRows.some(row => (
+    Math.abs(Number(row.paymentsReceived) || 0) > 0 ||
+    Math.abs(Number(row.moneyReturned) || 0) > 0 ||
+    Math.abs(Number(row.cancellation?.retainedFee) || 0) > 0 ||
+    Math.abs(Number(row.cancellation?.amountStillToRefund) || 0) > 0
+  ));
+  if (hasCancelledFinancials) return false;
+
+  // Otherwise, the trip has no bookings and no financial records — it is completely empty/blank.
+  return true;
+};
+
+/**
+ * Rolls up several already-built per-trip reports (see buildPerTripSalesReport)
+ * into one Grand Total plus the unmodified per-trip breakdown. Pure and cents-
+ * safe like buildPerTripSalesReport, so the grand total is guaranteed to equal
+ * the sum of the per-trip cards below it — there is no separate summation path
+ * to drift out of sync.
+ */
+export const aggregateMonthlySalesReports = (tripReports = []) => {
+  // Exclude cancelled or empty trips that have no bookings and no financial transactions / refunds.
+  // Cancelled trips with refunds/settlements are preserved so financial audit integrity remains intact.
+  const activeReports = (tripReports || []).filter(report => !isTripReportEmpty(report));
+
+  const sum = (field) => fromCents(
+    activeReports.reduce((total, report) => addCents(total, toCents(report.summary?.[field])), 0)
+  );
+  const sumCount = (field) => activeReports.reduce((total, report) => total + Number(report.summary?.[field] || 0), 0);
+
+  return {
+    grandTotal: {
+      shippingFees: sum('shippingFees'),
+      paymentsReceived: sum('paymentsReceived'),
+      moneyReturned: sum('moneyReturned'),
+      paymentsAfterRefunds: sum('paymentsAfterRefunds'),
+      amountStillToCollect: sum('amountStillToCollect'),
+      activeBookingCount: sumCount('activeBookingCount'),
+      completedBookingCount: sumCount('completedBookingCount'),
+      cancelledBookingCount: sumCount('cancelledBookingCount'),
+      unpricedActiveCount: sumCount('unpricedActiveCount'),
+      cancelledMoneyAwaitingDecision: sum('cancelledMoneyAwaitingDecision'),
+      cancelledReviewCount: sumCount('cancelledReviewCount'),
+      pendingRefundAmount: sum('pendingRefundAmount'),
+      failedRefundAmount: sum('failedRefundAmount'),
+      uncertainRefundAmount: sum('uncertainRefundAmount'),
+      dataInconsistent: activeReports.some(report => report.summary?.dataInconsistent),
+      tripCount: activeReports.length,
+    },
+    tripBreakdown: activeReports,
+  };
+};
+
+export default buildPerTripSalesReport;

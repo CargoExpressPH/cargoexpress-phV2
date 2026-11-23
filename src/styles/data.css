@@ -1,0 +1,457 @@
+/* --- DATA TABLES ------------------------------------------------------- */
+
+.table-container {
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: var(--radius-md);
+  scrollbar-width: thin;
+}
+
+.data-table {
+  width: 100%; border-collapse: separate; border-spacing: 0;
+}
+
+/* Wide tables (7-8 columns: bookings, unsettled, activity logs) retain
+   readable column width in the 900–1100px band before cards. Narrow
+   tables (dashboard 4 cols, customers 5 cols) fill naturally without
+   forced scroll. */
+.data-table--wide {
+  min-width: 640px;
+}
+
+@media (max-width: 900px) {
+  .data-table--wide {
+    min-width: 0;
+  }
+}
+.data-table th {
+  padding: 12px 16px; text-align: left;
+  font-size: var(--text-12); font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 1;
+  font-family: var(--font-sans);
+}
+.data-table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-light);
+  font-size: var(--text-14); color: var(--text);
+  font-family: var(--font-sans);
+  line-height: 1.45;
+  transition: var(--transition-fast);
+}
+
+.data-table th.num,
+.data-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.data-table th.num {
+  text-align: right;
+}
+.data-table tbody tr {
+  transition: var(--transition-fast);
+}
+.data-table tbody tr:hover {
+  background: var(--primary-bg);
+}
+.data-table tbody tr:hover td:first-child {
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+.data-table tbody tr:last-child td { border-bottom: none; }
+
+.data-table td .contact-link {
+  color: var(--text-secondary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+}
+.data-table td .contact-link:hover {
+  color: var(--primary-text);
+}
+.data-table td .contact-link-sep {
+  color: var(--text-secondary);
+}
+
+/* Clickable rows */
+.data-table tbody tr.clickable { cursor: pointer; }
+.data-table tbody tr.clickable:active { background: var(--primary-lighter); }
+
+
+/* --- STAT CARDS -------------------------------------------------------- */
+
+.stat-card {
+  border-radius: var(--radius-lg); padding: 24px; color: white;
+  position: relative; overflow: hidden;
+  transition: var(--transition);
+}
+.stat-card:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.05);
+}
+.stat-card::before {
+  content: ''; position: absolute; top: -40px; right: -40px;
+  width: 120px; height: 120px; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  transition: var(--transition-slow);
+}
+.stat-card:hover::before {
+  transform: scale(1.2);
+}
+.stat-card::after {
+  content: ''; position: absolute; bottom: -20px; left: -20px;
+  width: 60px; height: 60px; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+}
+.stat-card .stat-value {
+  font-size: var(--text-32); font-weight: 700; line-height: 1;
+  letter-spacing: -0.02em;
+}
+.stat-card .stat-label {
+  font-size: var(--text-13); opacity: 0.85; margin-top: 4px;
+  font-weight: 500;
+}
+.stat-card .stat-icon {
+  opacity: 0.25; position: absolute; right: 20px; top: 20px;
+}
+
+
+/* --- GRID -------------------------------------------------------------- */
+
+.grid { display: grid; gap: 24px; }
+.grid-2 { grid-template-columns: repeat(2, 1fr); }
+.grid-3 { grid-template-columns: repeat(3, 1fr); }
+.grid-4 { grid-template-columns: repeat(4, 1fr); }
+
+
+/* --- STATUS TIMELINE --------------------------------------------------- */
+
+.timeline { position: relative; padding-left: 32px; }
+.timeline::before {
+  content: ''; position: absolute; left: 11px; top: 4px; bottom: 4px;
+  width: 2px; background: var(--border);
+}
+.timeline-item { position: relative; padding-bottom: 24px; }
+.timeline-dot {
+  position: absolute; left: -32px; top: 2px;
+  width: 22px; height: 22px; border-radius: 50%;
+  border: 3px solid var(--border); background: white;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1; transition: var(--transition);
+}
+.timeline-dot.active {
+  border-color: var(--primary); background: var(--primary);
+  box-shadow: 0 0 0 4px var(--primary-glow);
+}
+.timeline-dot.completed { border-color: var(--success); background: var(--success); }
+
+.status-timeline {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  touch-action: pan-x pan-y;
+  -webkit-overflow-scrolling: touch;
+  padding: 8px 2px 16px;
+  scrollbar-width: thin;
+  /* Rendered as <ol>/<li> for a11y semantics; suppress native list markers. */
+  list-style: none;
+  margin: 0;
+}
+.status-timeline-step {
+  /* <li> — suppress native marker; layout set on this same rule below */
+  list-style: none;
+  --timeline-color: var(--text-tertiary);
+  --timeline-line-color: var(--border);
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  color: var(--timeline-color);
+  min-width: 0;
+}
+.status-timeline-track {
+  display: flex;
+  min-width: 600px;
+  align-items: flex-start;
+  justify-content: space-between;
+  position: relative;
+}
+.status-timeline-step.completed {
+  --timeline-color: var(--success);
+  --timeline-line-color: var(--success);
+}
+.status-timeline-step.active {
+  --timeline-color: var(--primary);
+}
+.status-timeline-step.cancelled {
+  --timeline-color: var(--error);
+  --timeline-line-color: var(--error-bg);
+}
+.status-timeline-line {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  width: 100%;
+  height: 3px;
+  background: var(--timeline-line-color);
+  z-index: 1;
+  transition: background 0.3s ease;
+}
+.status-timeline-node {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--border-light);
+  border: 2px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  z-index: 2;
+  margin-bottom: 10px;
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+.status-timeline-step.completed .status-timeline-node {
+  background: var(--success-fill);
+  border-color: var(--success-fill);
+  color: white;
+  box-shadow: 0 4px 12px var(--success-glow);
+}
+.status-timeline-step.active .status-timeline-node {
+  background: var(--primary-fill);
+  border-color: var(--primary-fill);
+  color: white;
+  width: 34px;
+  height: 34px;
+  box-shadow: 0 4px 14px var(--primary-glow), 0 0 0 4px var(--primary-glow);
+  animation: breathe 2s ease-in-out infinite;
+}
+.status-timeline-step.cancelled.active .status-timeline-node {
+  box-shadow: 0 4px 14px var(--error-glow), 0 0 0 4px var(--error-glow);
+}
+.status-timeline-text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+}
+.status-timeline-label {
+  color: var(--timeline-color);
+  font-weight: 500;
+  font-size: var(--text-12);
+  text-align: center;
+  line-height: 1.2;
+  max-width: 92px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+/* Date over time, each kept to its own step so neighbouring steps in the
+   horizontal track never run into each other. */
+.status-timeline-time {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: var(--text-12);
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--text-tertiary);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.status-timeline-step.completed .status-timeline-time {
+  color: var(--success-text);
+  opacity: 0.85;
+}
+.status-timeline-step.active .status-timeline-time {
+  color: var(--primary-text);
+  opacity: 1;
+}
+.status-timeline-step.completed .status-timeline-label {
+  font-weight: 600;
+}
+.status-timeline-step.active .status-timeline-label {
+  font-weight: 700;
+  font-size: var(--text-13);
+}
+
+.customer-order-detail-header {
+  gap: 12px;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+}
+.customer-order-detail-header > div {
+  min-width: 0;
+}
+/* h1 as well as h2: the tracking number was promoted to the page's <h1>, and
+   both the clamp() sizing above and this overflow-wrap are what keep a long
+   CE-YYYYMMDD-NNNN from overflowing a 320px screen. */
+.customer-order-detail-header h1,
+.customer-order-detail-header h2,
+.customer-order-detail-header p {
+  overflow-wrap: anywhere;
+}
+.customer-contact-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.customer-proof-photo-btn {
+  width: 104px;
+  min-height: 104px;
+  border: 2px solid #E2E8F0;
+  border-radius: 8px;
+  overflow: hidden;
+  padding: 0;
+  cursor: zoom-in;
+  background: var(--surface);
+  position: relative;
+}
+.customer-proof-photo-btn:disabled {
+  cursor: default;
+}
+.customer-proof-photo-fallback {
+  width: 100%;
+  min-height: 100px;
+  display: grid;
+  place-items: center;
+  gap: 6px;
+  padding: 10px;
+  color: var(--text-tertiary);
+  background: var(--bg-secondary);
+  font-size: var(--text-12);
+  font-weight: 600;
+  text-align: center;
+}
+.customer-proof-photo-preview {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  pointer-events: none;
+}
+.customer-proof-photo-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.5));
+  padding: 8px 6px 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.customer-payment-summary {
+  background: linear-gradient(135deg, var(--customer-green-soft), var(--customer-panel-solid));
+  border: 1px solid var(--border-light);
+  border-top-left-radius: 20px;
+  border-top-right-radius: 20px;
+  border-bottom-right-radius: 20px;
+  border-bottom-left-radius: 20px;
+  padding: 14px;
+  display: flex;
+  justify-content: space-around;
+  gap: 10px;
+  margin-bottom: 12px;
+  transition: var(--transition);
+}
+
+
+/* --- CAPACITY GAUGE ---------------------------------------------------- */
+
+.capacity-tracker {
+  transition: var(--transition);
+}
+
+.capacity-status-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-full);
+  padding: 3px 10px;
+  font-size: var(--text-12);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+.capacity-status-badge.status-safe {
+  background: color-mix(in srgb, var(--capacity-safe-text) 12%, transparent);
+  color: var(--capacity-safe-text);
+}
+.capacity-status-badge.status-medium {
+  background: color-mix(in srgb, var(--capacity-medium-text) 12%, transparent);
+  color: var(--capacity-medium-text);
+}
+.capacity-status-badge.status-high {
+  background: color-mix(in srgb, var(--capacity-high-text) 12%, transparent);
+  color: var(--capacity-high-text);
+}
+.capacity-status-badge.status-critical {
+  background: color-mix(in srgb, var(--capacity-critical-text) 12%, transparent);
+  color: var(--capacity-critical-text);
+}
+
+.capacity-bar {
+  height: 12px;
+  background: color-mix(in srgb, var(--border) 55%, transparent);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  position: relative;
+}
+.capacity-fill {
+  height: 100%; border-radius: var(--radius-full);
+  max-width: 100%;
+  overflow: hidden;
+  background: linear-gradient(90deg, var(--success), #34D399);
+  transition: width 0.5s ease-out, background-color 0.5s ease-out;
+  position: relative;
+  animation: capacityFillIn 1.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+.capacity-fill.fill-safe { background: var(--capacity-safe-bar); }
+.capacity-fill.fill-medium { background: var(--capacity-medium-bar); }
+.capacity-fill.fill-high { background: var(--capacity-high-bar); }
+.capacity-fill.fill-critical { background: var(--capacity-critical-bar); }
+@keyframes capacityFillIn {
+  from { max-width: 0; }
+  to { max-width: 100%; }
+}
+.capacity-fill::after {
+  content: '';
+  position: absolute; top: 0; left: -100%; width: 100%; bottom: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent);
+  animation: capacityShimmer 2.5s ease-in-out infinite 1.2s;
+}
+@keyframes capacityShimmer {
+  0% { left: -100%; }
+  100% { left: 200%; }
+}
+.capacity-fill.warning {
+  background: linear-gradient(90deg, var(--warning), var(--error));
+}
+
+@container card (max-width: 340px) {
+  .capacity-tracker {
+    padding: var(--space-xs) 0;
+  }
+  .capacity-bar {
+    height: 10px;
+  }
+}
+
+
+
+/* Two facts in one cell (date over time, amount over note): always stacked.
+   The phone card layout adds its own alignment on top of this. */
+.cell-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}

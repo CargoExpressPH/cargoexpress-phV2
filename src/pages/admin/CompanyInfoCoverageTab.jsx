@@ -1,0 +1,530 @@
+import { useState } from 'react';
+import { saveCoverageRegion, deleteCoverageRegion, saveCoverageMunicipality, deleteCoverageMunicipality, updateCoverageRegionsOrder, updateCoverageMunicipalitiesOrder } from '../../lib/database';
+import { logCompany } from '../../lib/activityLog';
+import { Plus, Trash2, Edit2, Save, Loader, MapPin, X, GripVertical, ChevronDown } from 'lucide-react';
+import { useToast } from '../../hooks/useToast';
+import ConfirmModal from '../../components/ui/ConfirmModal';
+import useFieldErrors from '../../hooks/useFieldErrors';
+import FieldError, { fieldAttrs, invalidClass } from '../../components/ui/FieldError';
+import { DndContext, closestCenter, KeyboardSensor, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { SortableContext, arrayMove, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+
+const SortableRegion = ({ region, handleEditRegion, setDeleteTarget, handleAddNewMuni, handleEditMuni, setCoverageAreas, isExpanded, onToggle }) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: region.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 10 : 1,
+    position: 'relative'
+  };
+
+  const muniCount = region.municipalities ? region.municipalities.length : 0;
+
+  // Split mouse/touch, not one PointerSensor tuned for both: a `distance`
+  // threshold is right for a mouse, but on a touchscreen the first 8px of an
+  // intended scroll is indistinguishable from the first 8px of a drag. This
+  // handle has no mobile-hide breakpoint (unlike the Features table's), so
+  // it's live on phones — a short press `delay` lets a scroll starting on it
+  // prove itself before dnd-kit claims the gesture.
+  const sensors = useSensors(
+    useSensor(MouseSensor, {
+      activationConstraint: { distance: 8 },
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 200, tolerance: 8 },
+    }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const handleMuniDragEnd = async (event) => {
+    const { active, over } = event;
+    if (active.id !== over.id) {
+      setCoverageAreas((areas) => {
+        const newAreas = [...areas];
+        const regionIndex = newAreas.findIndex(r => r.id === region.id);
+        const munis = [...newAreas[regionIndex].municipalities];
+        const oldIndex = munis.findIndex(m => m.id === active.id);
+        const newIndex = munis.findIndex(m => m.id === over.id);
+        
+        const newMunis = arrayMove(munis, oldIndex, newIndex);
+        newMunis.forEach((m, index) => m.display_order = index);
+        
+        newAreas[regionIndex] = { ...newAreas[regionIndex], municipalities: newMunis };
+        
+        // Background sync
+        updateCoverageMunicipalitiesOrder(newMunis).catch(err => console.error('Failed to update muni order:', err));
+        
+        return newAreas;
+      });
+    }
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} className="coverage-region-card">
+      {/* Region Header */}
+      <div className={`coverage-region-header ${isExpanded ? 'expanded' : ''}`}>
+        <div className="coverage-region-left">
+          <div
+            {...attributes}
+            {...listeners}
+            className="coverage-drag-handle"
+            onClick={e => e.stopPropagation()}
+            title="Drag to reorder region"
+            aria-label="Drag to reorder region"
+          >
+            <GripVertical size={16} />
+          </div>
+          <button
+            type="button"
+            className="coverage-region-toggle"
+            onClick={onToggle}
+            aria-expanded={isExpanded}
+            aria-controls={`coverage-region-${region.id}-municipalities`}
+          >
+            <span className="coverage-region-toggle-content">
+              <span className="coverage-region-icon-wrap" aria-hidden="true">
+                <MapPin size={16} />
+              </span>
+              <span className="coverage-region-title-wrap">
+                <span className="coverage-region-title" title={region.name}>{region.name}</span>
+                {muniCount > 0 && (
+                  <span className="coverage-muni-count-badge">
+                    {muniCount} {muniCount === 1 ? 'muni' : 'munis'}
+                  </span>
+                )}
+              </span>
+            </span>
+            <span
+              className="coverage-chevron-indicator"
+              style={{
+                transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)'
+              }}
+              aria-hidden="true"
+            >
+              <ChevronDown size={16} />
+            </span>
+          </button>
+        </div>
+        <div className="coverage-region-actions">
+          <div className="coverage-action-divider" aria-hidden="true" />
+          <button
+            type="button"
+            className="coverage-action-btn"
+            onClick={e => { e.stopPropagation(); handleEditRegion(region); }}
+            title={`Edit ${region.name}`}
+            aria-label={`Edit ${region.name}`}
+          >
+            <Edit2 size={14} />
+          </button>
+          <button
+            type="button"
+            className="coverage-action-btn danger"
+            onClick={e => { e.stopPropagation(); setDeleteTarget({ type: 'region', id: region.id, name: region.name }); }}
+            title={`Delete ${region.name}`}
+            aria-label={`Delete ${region.name}`}
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
+      </div>
+
+      {/* Municipalities — collapsible with smooth animation */}
+      <div
+        id={`coverage-region-${region.id}-municipalities`}
+        style={{
+          display: 'grid',
+          gridTemplateRows: isExpanded ? '1fr' : '0fr',
+          transition: 'grid-template-rows 250ms cubic-bezier(0.4, 0, 0.2, 1)'
+        }}
+      >
+        <div style={{ overflow: 'hidden' }}>
+          <div className="coverage-muni-section">
+            <div className="coverage-muni-header">
+              <div className="text-secondary" style={{ fontSize: 'var(--text-13)', fontWeight: 600 }}>
+                Municipalities {muniCount > 0 && `(${muniCount})`}
+              </div>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm text-xs"
+                style={{ padding: '4px 10px', minHeight: 28 }}
+                onClick={() => handleAddNewMuni(region.id)}
+              >
+                <Plus size={12} /> Add Muni
+              </button>
+            </div>
+
+            {(!region.municipalities || region.municipalities.length === 0) ? (
+              <div className="text-tertiary" style={{ fontSize: 'var(--text-13)', padding: '12px 0' }}>
+                No municipalities added to this region.
+              </div>
+            ) : (
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleMuniDragEnd}>
+                <SortableContext items={region.municipalities.map(m => m.id)} strategy={verticalListSortingStrategy}>
+                  <div className="flex flex-col gap-8" style={{ maxHeight: 400, overflowY: 'auto', paddingRight: 4 }}>
+                    {region.municipalities.map(muni => (
+                      <SortableMuni key={muni.id} muni={muni} regionId={region.id} handleEditMuni={handleEditMuni} setDeleteTarget={setDeleteTarget} />
+                    ))}
+                  </div>
+                </SortableContext>
+              </DndContext>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const SortableMuni = ({ muni, regionId, handleEditMuni, setDeleteTarget }) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: muni.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 10 : 1,
+    position: 'relative'
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} className="coverage-muni-item">
+      <div {...attributes} {...listeners} className="coverage-drag-handle" title="Drag to reorder municipality" aria-label="Drag to reorder municipality">
+        <GripVertical size={14} />
+      </div>
+      <MapPin size={13} style={{ color: 'var(--primary-text)', flexShrink: 0 }} aria-hidden="true" />
+      <div className="coverage-muni-name" title={muni.name}>{muni.name}</div>
+      <button
+        type="button"
+        className="coverage-action-btn"
+        style={{ width: 30, height: 30, minWidth: 30, minHeight: 30 }}
+        onClick={() => handleEditMuni(muni, regionId)}
+        title={`Edit ${muni.name}`}
+        aria-label={`Edit ${muni.name}`}
+      >
+        <Edit2 size={13} />
+      </button>
+      <button
+        type="button"
+        className="coverage-action-btn danger"
+        style={{ width: 30, height: 30, minWidth: 30, minHeight: 30 }}
+        onClick={() => setDeleteTarget({ type: 'muni', id: muni.id, regionId, name: muni.name })}
+        title={`Delete ${muni.name}`}
+        aria-label={`Delete ${muni.name}`}
+      >
+        <Trash2 size={13} />
+      </button>
+    </div>
+  );
+};
+
+const CompanyInfoCoverageTab = ({ coverageAreas, setCoverageAreas }) => {
+  const toast = useToast();
+  
+  const [editingRegion, setEditingRegion] = useState(null);
+  const [regionForm, setRegionForm] = useState({ name: '' });
+  const [savingRegion, setSavingRegion] = useState(false);
+
+  const [editingMuni, setEditingMuni] = useState(null);
+  const [muniForm, setMuniForm] = useState({ region_id: '', name: '' });
+  const { errors, validate, clearError, clearAll } = useFieldErrors();
+  const [savingMuni, setSavingMuni] = useState(false);
+
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+
+  // Accordion state — tracks which region IDs are expanded. All collapsed by default.
+  const [expandedRegions, setExpandedRegions] = useState(new Set());
+
+  const toggleRegion = (regionId) => {
+    setExpandedRegions(prev => {
+      const next = new Set(prev);
+      if (next.has(regionId)) {
+        next.delete(regionId);
+      } else {
+        next.add(regionId);
+      }
+      return next;
+    });
+  };
+
+  // Same mouse/touch split as the municipality list above.
+  const sensors = useSensors(
+    useSensor(MouseSensor, {
+      activationConstraint: { distance: 8 },
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 200, tolerance: 8 },
+    }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const handleRegionDragEnd = async (event) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      setCoverageAreas((items) => {
+        const oldIndex = items.findIndex(item => item.id === active.id);
+        const newIndex = items.findIndex(item => item.id === over.id);
+        const newItems = arrayMove(items, oldIndex, newIndex);
+        
+        // Assign new display order
+        newItems.forEach((item, index) => item.display_order = index);
+        
+        // Persist to DB
+        updateCoverageRegionsOrder(newItems).catch(err => console.error('Failed to update region order:', err));
+        
+        return newItems;
+      });
+    }
+  };
+
+  // Region Handlers
+  // The region and municipality editors share one error map, and both are
+  // reused across rows, so opening either one starts clean.
+  const handleEditRegion = (region) => {
+    setEditingRegion(region.id);
+    setRegionForm({ name: region.name });
+    setEditingMuni(null);
+    clearAll();
+  };
+
+  const handleAddNewRegion = () => {
+    setEditingRegion('new');
+    setRegionForm({ name: '' });
+    setEditingMuni(null);
+    clearAll();
+  };
+  
+  const handleSaveRegion = async () => {
+    if (!validate({ region_name: !regionForm.name.trim() ? 'Please enter a region name.' : null })) return;
+    try {
+      setSavingRegion(true);
+      const data = { ...regionForm };
+      if (editingRegion === 'new') {
+        data.display_order = coverageAreas.length;
+      }
+      if (editingRegion !== 'new') data.id = editingRegion;
+
+      const saved = await saveCoverageRegion(data);
+      
+      if (editingRegion === 'new') {
+        const newItem = saved || { ...data, id: Date.now().toString(), municipalities: [] };
+        setCoverageAreas(prev => [...prev, newItem]);
+        logCompany('Coverage Region Added', { details: `Added region: ${data.name}` });
+      } else {
+        setCoverageAreas(prev => prev.map(r => r.id === editingRegion ? { ...r, ...data } : r));
+        logCompany('Coverage Region Updated', { details: `Updated region: ${data.name}` });
+      }
+      
+      setEditingRegion(null);
+      toast.success('Region saved successfully');
+    } catch (err) {
+      toast.error('Failed to save region');
+      console.error(err);
+    } finally {
+      setSavingRegion(false);
+    }
+  };
+
+  // Municipality Handlers
+  const handleEditMuni = (muni, regionId) => {
+    setEditingMuni(muni.id);
+    setMuniForm({ name: muni.name, region_id: regionId });
+    setEditingRegion(null);
+    clearAll();
+  };
+
+  const handleAddNewMuni = (regionId) => {
+    setEditingMuni('new');
+    setMuniForm({ region_id: regionId, name: '' });
+    setEditingRegion(null);
+    clearAll();
+  };
+  
+  const handleSaveMuni = async () => {
+    if (!validate({ muni_name: !muniForm.name.trim() ? 'Please enter a municipality name.' : null })) return;
+    try {
+      setSavingMuni(true);
+      const data = { ...muniForm };
+      const region = coverageAreas.find(r => r.id === data.region_id);
+      
+      if (editingMuni === 'new') {
+        data.display_order = region.municipalities ? region.municipalities.length : 0;
+      }
+      if (editingMuni !== 'new') data.id = editingMuni;
+
+      const saved = await saveCoverageMunicipality(data);
+      
+      if (editingMuni === 'new') {
+        const newItem = saved || { ...data, id: Date.now().toString() };
+        setCoverageAreas(prev => prev.map(r => {
+          if (r.id === data.region_id) {
+            return { ...r, municipalities: [...(r.municipalities || []), newItem] };
+          }
+          return r;
+        }));
+        logCompany('Coverage Municipality Added', { details: `Added municipality: ${data.name}` });
+      } else {
+        setCoverageAreas(prev => prev.map(r => {
+          if (r.id === data.region_id) {
+            return { ...r, municipalities: (r.municipalities || []).map(m => m.id === editingMuni ? { ...m, ...data } : m) };
+          }
+          return r;
+        }));
+        logCompany('Coverage Municipality Updated', { details: `Updated municipality: ${data.name}` });
+      }
+      
+      setEditingMuni(null);
+      toast.success('Municipality saved successfully');
+    } catch (err) {
+      toast.error('Failed to save municipality');
+      console.error(err);
+    } finally {
+      setSavingMuni(false);
+    }
+  };
+
+  const executeDelete = async () => {
+    if (!deleteTarget) return;
+    try {
+      setDeleting(true);
+      if (deleteTarget.type === 'region') {
+        await deleteCoverageRegion(deleteTarget.id);
+        setCoverageAreas(prev => prev.filter(r => r.id !== deleteTarget.id));
+        logCompany('Coverage Region Deleted', { details: `Deleted region: ${deleteTarget.name}` });
+      } else {
+        await deleteCoverageMunicipality(deleteTarget.id);
+        setCoverageAreas(prev => prev.map(region => {
+          if (region.id === deleteTarget.regionId) {
+            return { ...region, municipalities: region.municipalities.filter(m => m.id !== deleteTarget.id) };
+          }
+          return region;
+        }));
+        logCompany('Coverage Municipality Deleted', { details: `Deleted municipality: ${deleteTarget.name}` });
+      }
+      toast.success('Deleted successfully');
+    } catch (err) {
+      toast.error('Failed to delete');
+    } finally {
+      setDeleting(false);
+      setDeleteTarget(null);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-16">
+      <div className="card">
+        <div className="card-header">
+          <h3><MapPin size={16} className="inline mr-8" />Coverage Areas</h3>
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={handleAddNewRegion}
+            disabled={editingRegion !== null || editingMuni !== null}
+          >
+            <Plus size={14} /> Add Region
+          </button>
+        </div>
+
+        {/* Region Form */}
+        {editingRegion && (
+          <div style={{ borderBottom: '1px solid var(--border-light)', padding: '20px 24px', background: 'var(--bg-secondary)' }}>
+            <div style={{ fontWeight: 700, marginBottom: 16, fontSize: 'var(--text-16)' }}>
+              {editingRegion === 'new' ? 'New Region' : 'Edit Region'}
+            </div>
+            <div className="form-group mb-0">
+              <label className="form-label" htmlFor="coverage-region-name">Region Name <span className="required">*</span></label>
+              <input
+                id="coverage-region-name"
+                className={`form-input ${invalidClass('region_name', errors)}`}
+                value={regionForm.name}
+                onChange={e => { setRegionForm({...regionForm, name: e.target.value}); clearError('region_name'); }}
+                placeholder="e.g. Metro Manila"
+                autoFocus
+                {...fieldAttrs('region_name', errors)}
+              />
+              <FieldError name="region_name" errors={errors} />
+            </div>
+            <div className="flex justify-end gap-8" style={{ marginTop: 16 }}>
+              <button className="btn btn-ghost btn-sm" onClick={() => setEditingRegion(null)}><X size={14} /> Cancel</button>
+              <button className="btn btn-primary btn-sm" onClick={handleSaveRegion} disabled={savingRegion}>
+                {savingRegion ? <Loader size={14} className="animate-spin" /> : <Save size={14} />} Save Region
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Municipality Form */}
+        {editingMuni && (
+          <div style={{ borderBottom: '1px solid var(--border-light)', padding: '20px 24px', background: 'var(--bg-secondary)' }}>
+            <div style={{ fontWeight: 700, marginBottom: 16, fontSize: 'var(--text-16)' }}>
+              {editingMuni === 'new' ? 'New Municipality' : 'Edit Municipality'}
+            </div>
+            <div className="form-group mb-0">
+              <label className="form-label" htmlFor="coverage-muni-name">Municipality Name <span className="required">*</span></label>
+              <input
+                id="coverage-muni-name"
+                className={`form-input ${invalidClass('muni_name', errors)}`}
+                value={muniForm.name}
+                onChange={e => { setMuniForm({...muniForm, name: e.target.value}); clearError('muni_name'); }}
+                placeholder="e.g. Quezon City"
+                autoFocus
+                {...fieldAttrs('muni_name', errors)}
+              />
+              <FieldError name="muni_name" errors={errors} />
+            </div>
+            <div className="flex justify-end gap-8" style={{ marginTop: 16 }}>
+              <button className="btn btn-ghost btn-sm" onClick={() => setEditingMuni(null)}><X size={14} /> Cancel</button>
+              <button className="btn btn-primary btn-sm" onClick={handleSaveMuni} disabled={savingMuni}>
+                {savingMuni ? <Loader size={14} className="animate-spin" /> : <Save size={14} />} Save Municipality
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Coverage List */}
+        <div className="coverage-list-container">
+          {coverageAreas.length === 0 ? (
+            <div className="text-center p-24 text-tertiary border rounded-md" style={{ borderColor: 'var(--border-light)', background: 'var(--bg-secondary)' }}>
+              No coverage areas defined. Click "Add Region" to get started.
+            </div>
+          ) : (
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleRegionDragEnd}>
+              <SortableContext items={coverageAreas.map(r => r.id)} strategy={verticalListSortingStrategy}>
+                <div className="flex flex-col gap-16">
+                  {coverageAreas.map(region => (
+                    <SortableRegion 
+                      key={region.id} 
+                      region={region} 
+                      handleEditRegion={handleEditRegion}
+                      setDeleteTarget={setDeleteTarget}
+                      handleAddNewMuni={handleAddNewMuni}
+                      handleEditMuni={handleEditMuni}
+                      setCoverageAreas={setCoverageAreas}
+                      isExpanded={expandedRegions.has(region.id)}
+                      onToggle={() => toggleRegion(region.id)}
+                    />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
+          )}
+        </div>
+      </div>
+
+      <ConfirmModal
+        isOpen={!!deleteTarget}
+        title={`Delete ${deleteTarget?.type === 'region' ? 'Region' : 'Municipality'}`}
+        message={deleteTarget?.type === 'region' 
+          ? `Are you sure you want to delete the region "${deleteTarget?.name}" and ALL its municipalities? This cannot be undone.`
+          : `Are you sure you want to delete "${deleteTarget?.name}"?`
+        }
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={executeDelete}
+        confirmLabel={deleting ? 'Deleting...' : 'Delete'}
+        variant="danger"
+      />
+    </div>
+  );
+};
+
+export default CompanyInfoCoverageTab;

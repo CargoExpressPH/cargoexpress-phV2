@@ -1,0 +1,1273 @@
+/* --- Admin page header, toolbar, detail grid composition ---
+   Split from remaining.css. Import order in main.css keeps every rule
+   in the original cascade position (pages layer).
+   ----------------------------------------------------------------- */
+
+/* Admin responsive composition */
+.admin-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 24px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.admin-page-header > * {
+  min-width: 0;
+}
+
+.admin-page-header h1,
+.admin-page-header h2,
+.admin-page-header h3 {
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.admin-page-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--text-24);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+
+.admin-page-subtitle {
+  margin-top: 5px;
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: var(--text-14);
+  line-height: 1.45;
+}
+
+.admin-page-meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.admin-toolbar {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.admin-toolbar .search-box {
+  margin-bottom: 0;
+}
+
+.admin-table-card {
+  overflow: hidden;
+}
+
+.admin-table-card .table-container {
+  border-radius: 0;
+}
+
+.admin-section-card {
+  border: 1px solid var(--border-light);
+  box-shadow: var(--shadow-sm);
+}
+
+.admin-section-card .card-header {
+  background: linear-gradient(180deg, var(--surface), var(--bg));
+}
+
+.admin-action-card .card-body {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.admin-action-group {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.admin-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.admin-detail-item {
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+}
+
+.admin-detail-label {
+  margin-bottom: 4px;
+  color: var(--text-tertiary);
+  font-size: var(--text-12);
+  font-weight: 700;
+  line-height: 1.25;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.admin-detail-value {
+  min-width: 0;
+  color: var(--text);
+  font-size: var(--text-14);
+  font-weight: 700;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+/* Order identity and financial state are separate pieces of information. The
+   row may wrap at any width instead of letting a long tracking number squeeze
+   (or push out) the balance badge. */
+.admin-order-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+/* The tracking number + copy button wrapper takes the heading's place in the
+   row; the h1 inside keeps the rules below. */
+.admin-order-heading .order-tracking-title {
+  flex: 1 1 280px;
+}
+
+.admin-order-heading h1 {
+  flex: 1 1 280px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.admin-order-heading-status {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
+}
+
+.admin-order-heading-status .badge,
+.admin-order-payment-badges .badge {
+  max-width: 100%;
+}
+
+/* ── Admin page tabs (Company Information, Storage Monitoring, …) ───────── */
+.admin-tab-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  margin-bottom: 20px;
+  overflow-x: auto;
+  flex-wrap: nowrap;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  box-shadow: var(--shadow-xs);
+}
+
+.admin-tab-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.admin-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  font-size: var(--text-14);
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: var(--transition-fast);
+}
+
+.admin-tab-btn:hover {
+  color: var(--text);
+  background: var(--bg-secondary);
+}
+
+.admin-tab-btn.active {
+  background: linear-gradient(135deg, var(--primary-fill) 0%, var(--primary-text-strong) 100%);
+  color: #FFFFFF;
+  font-weight: 700;
+  box-shadow: 0 4px 12px rgba(22, 163, 74, 0.28);
+}
+
+[data-theme="dark"] .admin-tab-btn.active {
+  background: #10B981;
+  color: #0F172A;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+/* ── Coverage Areas Component ─────────────────────────────────────────── */
+.coverage-list-container {
+  padding: 20px 24px;
+}
+
+@media (max-width: 768px) {
+  .coverage-list-container {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .coverage-list-container {
+    padding: 12px;
+  }
+}
+
+@media (max-width: 360px) {
+  .coverage-list-container {
+    padding: 8px;
+  }
+}
+
+.coverage-region-card {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  transition: var(--transition);
+}
+
+.coverage-region-card:hover {
+  border-color: var(--border-hover);
+  box-shadow: var(--shadow-md);
+}
+
+.coverage-region-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  user-select: none;
+  min-height: 52px;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.coverage-region-header:hover {
+  background: var(--bg-tertiary);
+}
+
+.coverage-region-header.expanded {
+  border-bottom: 1px solid var(--border-light);
+}
+
+.coverage-region-left {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.coverage-region-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.coverage-region-toggle-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.coverage-region-toggle:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+  border-radius: var(--radius-sm);
+}
+
+.coverage-drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  cursor: grab;
+  flex-shrink: 0;
+  padding: 4px;
+  touch-action: none;
+  user-select: none;
+  border-radius: var(--radius-xs);
+  transition: color 0.15s ease;
+}
+
+/* .feature-drag-handle is a <td> (a table row's drag handle, not a standalone
+   div like .coverage-drag-handle above), so only the touch-safety properties
+   are shared here — display: flex would turn it from a table-cell into a
+   flex item and break its place in the row. touch-action: none stops the
+   browser from interpreting its own touch panning on this narrow handle, so
+   it never races the TouchSensor's activation delay to decide whether a
+   touch here is a scroll or a drag. */
+.feature-drag-handle {
+  touch-action: none;
+  user-select: none;
+}
+
+.coverage-drag-handle:hover {
+  color: var(--text);
+}
+
+.coverage-region-icon-wrap {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-md);
+  background: var(--primary-bg);
+  color: var(--primary-text);
+  border: 1px solid rgba(22, 163, 74, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: var(--shadow-xs);
+}
+
+.coverage-region-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.coverage-region-title {
+  font-size: var(--text-16);
+  font-weight: 700;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.3;
+}
+
+.coverage-muni-count-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-12);
+  font-weight: 600;
+  background: var(--surface);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  padding: 2px 8px;
+  line-height: 1.4;
+  flex-shrink: 0;
+}
+
+.coverage-region-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.coverage-action-btn {
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+  min-width: 34px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: var(--transition-fast);
+  padding: 0;
+}
+
+.coverage-action-btn:hover {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border-light);
+  box-shadow: var(--shadow-xs);
+}
+
+.coverage-action-btn.danger {
+  color: var(--error-text);
+}
+
+.coverage-action-btn.danger:hover {
+  background: var(--error-bg);
+  color: var(--error-text-strong);
+  border-color: rgba(239, 68, 68, 0.2);
+}
+
+.coverage-action-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+.coverage-chevron-indicator {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  transition: transform 250ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.coverage-muni-section {
+  padding: 16px 20px;
+  background: var(--surface);
+}
+
+@media (max-width: 640px) {
+  .coverage-muni-section {
+    padding: 12px 14px;
+  }
+}
+
+.coverage-muni-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.coverage-muni-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  transition: var(--transition-fast);
+  position: relative;
+}
+
+.coverage-muni-item:hover {
+  border-color: var(--border-hover);
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
+}
+
+.coverage-muni-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-13);
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .coverage-region-header {
+    padding: 10px 12px;
+  }
+
+  .coverage-region-icon-wrap {
+    width: 32px;
+    height: 32px;
+  }
+
+  .coverage-region-title {
+    font-size: var(--text-14);
+    max-width: 140px;
+  }
+}
+
+@media (max-width: 400px) {
+  .coverage-region-title {
+    font-size: var(--text-13);
+    max-width: 110px;
+  }
+
+  .coverage-muni-count-badge {
+    padding: 1px 6px;
+    font-size: var(--text-12);
+  }
+
+  .coverage-action-btn {
+    width: 30px;
+    height: 30px;
+    min-width: 30px;
+    min-height: 30px;
+  }
+}
+
+/* ============================================================================
+   Storage Monitoring — three-column booking-folder browser (Cargo Photos and
+   Company Images share this shell). Desktop shows all three columns side by
+   side; below the breakpoint, columns become sequential full-width panes
+   driven by [data-pane] on .storage-browser, mirroring the list/detail
+   collapse pattern in chat-inbox.css. All three panes stay mounted at all
+   times (only CSS visibility changes) so switching panes on mobile never
+   loses scroll position or resets state.
+   ============================================================================ */
+.storage-browser-card {
+  padding: 0;
+}
+
+.storage-browser {
+  display: grid;
+  grid-template-columns: 260px minmax(260px, 1fr) minmax(280px, 1.15fr);
+  min-height: 480px;
+}
+
+.storage-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+}
+
+.storage-col:last-child {
+  border-right: none;
+}
+
+.storage-col-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  min-height: 44px;
+}
+
+.storage-col-footer {
+  padding: 4px 8px;
+  border-top: 1px solid var(--border);
+}
+
+.storage-folder-list,
+.storage-photo-list {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 200px;
+  max-height: 620px;
+}
+
+.storage-folder-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.storage-folder-row:hover {
+  background: var(--bg-secondary);
+}
+
+.storage-folder-row-active {
+  background: var(--bg-secondary);
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+
+.storage-folder-row-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.storage-folder-row-title {
+  font-size: var(--text-13);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.storage-folder-row-sub {
+  font-size: var(--text-12);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.storage-folder-row-count {
+  font-size: var(--text-12);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+/* Cargo folder rows carry a per-folder "⋮" actions menu beside the main
+   select button — two siblings, not one button nested in another. The plain
+   .storage-folder-row (Company Images' group buttons, no menu) is untouched;
+   this modifier only changes the row that has both children. */
+.storage-folder-row-has-menu {
+  padding: 0;
+  gap: 0;
+}
+
+.storage-folder-row-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  padding: 10px 4px 10px 12px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.storage-folder-menu-trigger {
+  flex-shrink: 0;
+  margin-right: 6px;
+  color: var(--text-secondary);
+}
+
+/* Portal-rendered into document.body (see FolderActionsMenu) so it is never
+   clipped by .storage-folder-list's own overflow-y:auto. Positioned via
+   inline top/right computed from the trigger's own bounding rect. */
+.storage-folder-menu {
+  position: fixed;
+  z-index: 200;
+  min-width: 220px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  padding: 4px;
+}
+
+.storage-folder-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 10px;
+  border: none;
+  border-radius: var(--radius-xs, 6px);
+  background: transparent;
+  color: var(--text);
+  font-size: var(--text-13);
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+}
+
+.storage-folder-menu-item:hover,
+.storage-folder-menu-item:focus-visible {
+  background: var(--bg-secondary);
+}
+
+.storage-folder-menu-item.danger {
+  color: var(--error);
+}
+
+.storage-folder-menu-item.danger:hover,
+.storage-folder-menu-item.danger:focus-visible {
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.storage-photo-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.storage-photo-row-active {
+  background: var(--bg-secondary);
+}
+
+.storage-photo-row-checkbox {
+  border: none;
+  background: transparent;
+  padding: 4px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  display: flex;
+  flex-shrink: 0;
+}
+
+.storage-photo-row-checkbox:disabled {
+  cursor: not-allowed;
+}
+
+.storage-photo-row-thumb {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs, 6px);
+  background: var(--bg-secondary);
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.storage-photo-row-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.storage-photo-row-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.storage-photo-row-title {
+  font-size: var(--text-13);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.storage-photo-row-meta {
+  font-size: var(--text-12);
+  color: var(--text-secondary);
+}
+
+.storage-photo-row-reason {
+  flex-shrink: 0;
+  max-width: 140px;
+  font-size: var(--text-12);
+  color: var(--warning-text);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.storage-preview-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  text-align: center;
+}
+
+.storage-preview {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.storage-preview-image-wrap {
+  flex: 1;
+  min-height: 260px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-secondary);
+  padding: 12px;
+}
+
+.storage-preview-image-wrap img {
+  max-width: 100%;
+  max-height: 480px;
+  object-fit: contain;
+}
+
+.storage-preview-details {
+  padding: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.storage-selection-bar {
+  position: sticky;
+  bottom: 16px;
+  margin-top: 16px;
+  padding: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+
+.storage-browser-mobile-back {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .storage-browser {
+    display: block;
+    min-height: 0;
+  }
+
+  .storage-browser .storage-col {
+    border-right: none;
+  }
+
+  .storage-browser .storage-col-folders,
+  .storage-browser .storage-col-photos,
+  .storage-browser .storage-col-preview {
+    display: none;
+  }
+
+  .storage-browser[data-pane="folders"] .storage-col-folders,
+  .storage-browser[data-pane="photos"] .storage-col-photos,
+  .storage-browser[data-pane="preview"] .storage-col-preview {
+    display: flex;
+  }
+
+  .storage-folder-list,
+  .storage-photo-list {
+    max-height: none;
+  }
+
+  .storage-browser-mobile-back {
+    display: inline-flex;
+  }
+}
+
+/* ── Admin dashboard: Needs Attention, Next Departure, month totals, status
+   bars. Built on theme tokens only, so dark mode needs no extra rules. ── */
+.dash-card-message {
+  padding: 20px 8px;
+}
+
+.dash-attention-list,
+.dash-promise-list,
+.dash-other-trips ul,
+.dash-status-bars {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.dash-attention-list {
+  display: grid;
+  gap: 2px;
+}
+
+.dash-attention-row,
+.dash-promise-row,
+.dash-other-trip-row {
+  display: grid;
+  align-items: center;
+  border-radius: var(--radius-md);
+  color: var(--text);
+  text-decoration: none;
+  transition: var(--transition-fast);
+}
+
+.dash-attention-row:hover,
+.dash-promise-row:hover,
+.dash-other-trip-row:hover {
+  background: var(--bg-secondary);
+}
+
+.dash-attention-row:focus-visible,
+.dash-promise-row:focus-visible,
+.dash-other-trip-row:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.dash-attention-row {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: 12px;
+  padding: 10px 8px;
+}
+
+.dash-attention-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+}
+
+.dash-tone-warning { background: var(--warning-icon-bg); color: var(--warning-text); }
+.dash-tone-error { background: var(--error-icon-bg); color: var(--error-text); }
+.dash-tone-info { background: var(--info-icon-bg); color: var(--info-text); }
+
+.dash-attention-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.dash-attention-label {
+  font-size: var(--text-14);
+  font-weight: 600;
+}
+
+.dash-attention-hint {
+  font-size: var(--text-12);
+  color: var(--text-secondary);
+}
+
+.dash-attention-count {
+  min-width: 28px;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: var(--bg-secondary);
+  color: var(--text);
+  font-size: var(--text-13);
+  font-weight: 700;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.dash-attention-chevron {
+  color: var(--text-tertiary);
+}
+
+.dash-attention-list + .dash-promises {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-light);
+}
+
+.dash-promises-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 6px;
+  color: var(--text);
+  font-size: var(--text-14);
+  font-weight: 600;
+}
+
+.dash-promises-title .dash-attention-count {
+  margin-left: auto;
+}
+
+.dash-promise-row {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  padding: 8px;
+}
+
+.dash-promise-ref {
+  font-family: var(--font-mono);
+  font-size: var(--text-13);
+  font-weight: 600;
+}
+
+.dash-promise-meta {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dash-promise-amount {
+  color: var(--error-text);
+  font-size: var(--text-13);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.dash-promises-more {
+  margin: 0;
+  padding: 4px 8px 0;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+}
+
+.dash-other-trips {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-light);
+}
+
+.dash-other-trips-title {
+  margin-bottom: 4px;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.dash-other-trip-row {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 8px 4px;
+}
+
+.dash-other-trip-ref {
+  font-size: var(--text-13);
+  font-weight: 600;
+}
+
+.dash-other-trip-route {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dash-active-trip-header {
+  min-width: 0;
+}
+
+.dash-active-trip-link {
+  min-width: 0;
+}
+
+.dash-active-trip-route {
+  white-space: nowrap;
+}
+
+.dash-active-trip-header > .badge {
+  flex-shrink: 0;
+}
+
+/* On phones, keep the route readable instead of squeezing it between the
+   tracking number and the status badge. The number and route share the first
+   column; the badge stays aligned in the second column. */
+@media (max-width: 640px) {
+  .dash-other-trip-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 10px;
+    row-gap: 2px;
+  }
+
+  .dash-other-trip-ref {
+    grid-column: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .dash-other-trip-route {
+    grid-column: 1;
+    grid-row: 2;
+    overflow: visible;
+    line-height: 1.35;
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  .dash-other-trip-row > .badge {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    justify-self: end;
+    white-space: nowrap;
+  }
+}
+
+.dash-month-card .card-header {
+  flex-wrap: nowrap;
+  gap: 8px;
+}
+
+.dash-month-card .card-header h3 {
+  min-width: 0;
+  gap: 8px;
+}
+
+.dash-month-reports {
+  flex-shrink: 0;
+  min-width: 44px;
+  min-height: 44px;
+  gap: 6px;
+  padding: 8px;
+}
+
+/* The named container is the existing .card. Keep a full-size, labelled
+   report action beside the date even in narrow cards or with larger text. */
+@container card (max-width: 19rem) {
+  .dash-month-reports > span {
+    display: none;
+  }
+}
+
+/* Older Safari skips container queries. The mobile month card has too little
+   room for both a long month name and the Reports label; the link keeps its
+   accessible name through aria-label. */
+@media (max-width: 380px) {
+  .dash-month-reports > span { display: none; }
+}
+
+/* Keep all three totals aligned, even when this card is half of a desktop
+   grid. Respond to the available card width rather than the viewport. */
+.dash-money-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-rows: 1fr;
+  container-type: inline-size;
+  container-name: dashboard-money;
+  gap: 10px;
+  margin: 0;
+}
+
+.dash-money {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+  gap: 4px 16px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+}
+
+.dash-money dt {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+}
+
+.dash-money dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-20);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+@container dashboard-money (min-width: 22rem) {
+  .dash-money {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .dash-money dd {
+    text-align: right;
+  }
+}
+
+.dash-money dd.dash-money-positive { color: var(--success-text); }
+.dash-money dd.dash-money-owing { color: var(--error-text); }
+
+/* One grid for the whole list, shared by every row through subgrid, so the
+   label column sizes to the longest status and every bar starts at the same
+   x. The first grid-template-columns is the fallback for browsers without
+   subgrid. */
+.dash-status-bars {
+  display: grid;
+  grid-template-columns: max-content minmax(48px, 1fr) auto;
+  gap: 10px 12px;
+}
+
+.dash-status-bar {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(96px, 40%) minmax(0, 1fr) 36px;
+  grid-template-columns: subgrid;
+  align-items: center;
+}
+
+.dash-status-label {
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--text-13);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dash-status-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: var(--radius-full);
+  background: var(--bg-secondary);
+}
+
+.dash-status-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.dash-status-count {
+  font-size: var(--text-13);
+  font-weight: 700;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Phones: the amount stays on the first line beside the tracking number and
+   the customer/date line drops below, instead of truncating to nothing. */
+@media (max-width: 480px) {
+  .dash-promise-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .dash-promise-amount {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .dash-promise-meta {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}

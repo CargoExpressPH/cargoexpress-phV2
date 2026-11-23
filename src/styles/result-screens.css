@@ -1,0 +1,393 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   RESULT SCREENS — one look for "it worked / it didn't / still checking"
+   ───────────────────────────────────────────────────────────────────────
+   • GCash payment return page (/payment/return, public-shell.css)
+   • Payment result popup on the booking pages (feedback.css)
+   • Booking confirmation: customer Book (booking-success.css) and admin
+     Create Booking, plus the "couldn't confirm your booking" notice
+
+   layer(refresh), imported after booking-success.css, so these rules win
+   over the originals without removing any of them.
+   Older iOS: spacing by margins (no flex gap before iOS 14.5), no :has(),
+   overflow-wrap: break-word before anywhere, no color-mix().
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Status mark (ResultIcon.jsx) ──────────────────────────────────────── */
+.result-icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 72px;
+  height: 72px;
+  margin-left: auto;
+  margin-right: auto;
+  border-radius: 50%;
+}
+
+.result-icon svg {
+  display: block;
+  width: 40px;
+  height: 40px;
+}
+
+.result-icon--success {
+  background: var(--success-fill);
+  color: #FFFFFF;
+  box-shadow: 0 0 0 8px var(--success-bg), 0 14px 30px rgba(4, 120, 87, 0.26);
+  animation: resultPop 0.42s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.result-icon--error {
+  background: var(--error-fill);
+  color: #FFFFFF;
+  box-shadow: 0 0 0 8px var(--error-bg), 0 14px 30px rgba(185, 28, 28, 0.22);
+  animation: resultPop 0.42s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.result-icon--pending {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  box-shadow: 0 0 0 8px var(--bg-secondary);
+}
+
+.result-icon--loading {
+  background: var(--primary-bg);
+  color: var(--primary-text);
+  box-shadow: 0 0 0 8px var(--bg-secondary);
+}
+
+.result-icon-check {
+  stroke-dasharray: 48;
+  stroke-dashoffset: 48;
+  animation: resultDraw 0.45s ease-out 0.25s forwards;
+}
+
+.result-icon-cross {
+  stroke-dasharray: 22.6;
+  stroke-dashoffset: 22.6;
+  animation: resultDraw 0.35s ease-out 0.25s forwards;
+}
+
+.result-icon-spinner {
+  display: block;
+  box-sizing: border-box;
+  width: 30px;
+  height: 30px;
+  border: 3px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: resultSpin 0.9s linear infinite;
+}
+
+@keyframes resultDraw { to { stroke-dashoffset: 0; } }
+@keyframes resultPop {
+  from { opacity: 0; transform: scale(0.6); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes resultSpin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .result-icon--success,
+  .result-icon--error,
+  .result-icon-check,
+  .result-icon-cross { animation: none; }
+  .result-icon-check,
+  .result-icon-cross { stroke-dashoffset: 0; }
+}
+
+/* ── GCash payment return page ─────────────────────────────────────────── */
+.payment-return--success { background: linear-gradient(180deg, var(--success-bg) 0, var(--bg) 360px); }
+.payment-return--error   { background: linear-gradient(180deg, var(--error-bg) 0, var(--bg) 360px); }
+.payment-return--pending { background: linear-gradient(180deg, var(--primary-bg) 0, var(--bg) 360px); }
+
+.payment-return-card {
+  max-width: 440px;
+  padding: 28px 24px 24px;
+  border-color: var(--border);
+  border-radius: 24px;
+  box-shadow: 0 24px 48px -28px rgba(15, 23, 42, 0.32);
+}
+
+[data-theme="dark"] .payment-return-card {
+  box-shadow: 0 24px 48px -24px rgba(0, 0, 0, 0.6);
+}
+
+.payment-return-card > .payment-return-mark { margin-top: 30px; }
+
+.payment-return-card > .payment-return-title {
+  margin-top: 26px;
+  font-size: 1.5rem;
+  font-size: clamp(1.375rem, 5vw, 1.75rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.payment-return-card > .payment-return-text {
+  margin-top: 10px;
+  font-size: 0.9375rem;
+}
+
+.payment-return-card > .payment-return-help { margin-top: 18px; }
+
+.payment-return-help {
+  display: flex;
+  align-items: flex-start;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  line-height: 1.5;
+  text-align: left;
+}
+
+.payment-return-help svg {
+  flex-shrink: 0;
+  margin: 2px 10px 0 0;
+  color: var(--text-tertiary);
+}
+
+.payment-return-help--error svg { color: var(--error-text); }
+.payment-return-help--pending svg { color: var(--warning-text); }
+
+.payment-return-help p {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+
+.payment-return-help a {
+  color: var(--primary-text);
+  font-weight: 700;
+  text-decoration: underline;
+}
+
+.payment-return-card > .payment-return-actions {
+  width: 100%;
+  margin-top: 22px;
+}
+
+.payment-return-actions > * + * { margin-top: 10px; }
+
+.payment-return-actions .btn {
+  min-height: 50px;
+  border-radius: 14px;
+  font-size: 0.9375rem;
+}
+
+.payment-return-card > .payment-return-note { margin-top: 14px; }
+
+@media (max-width: 380px) {
+  .payment-return-card { padding: 24px 18px 20px; border-radius: 20px; }
+  .payment-return-card > .payment-return-mark { margin-top: 24px; }
+  .payment-return-card > .payment-return-title { margin-top: 22px; }
+}
+
+/* ── Booking confirmation (customer overlay and admin page) ─────────────── */
+.booking-success-mark { margin-bottom: 22px; }
+
+.admin-booking-success {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 8px 0 24px;
+}
+
+.admin-booking-success .booking-success-intro { margin-top: 12px; }
+
+@media (min-width: 900px) {
+  .admin-booking-success { padding-top: 24px; }
+}
+
+@media (max-width: 479px) {
+  .booking-success-mark { width: 64px; height: 64px; margin-bottom: 20px; }
+  .booking-success-mark svg { width: 36px; height: 36px; }
+}
+
+@media (max-height: 600px) {
+  .booking-success-mark { width: 56px; height: 56px; margin-bottom: 16px; }
+  .booking-success-mark svg { width: 32px; height: 32px; }
+}
+
+/* The check in the same brand green as the receipt's primary button. */
+.booking-success-mark.result-icon--success {
+  background: var(--primary-fill);
+  box-shadow: 0 0 0 8px var(--primary-bg), 0 14px 30px rgba(21, 128, 61, 0.26);
+}
+
+/* Receipt spacing as margins instead of flex gap (older iOS). Same sizes as
+   the gap values in booking-success.css, so newer browsers look identical. */
+.booking-success-brand,
+.booking-success-card-header,
+.booking-success-status-pill,
+.booking-success-tracking,
+.booking-success-tracking-text,
+.booking-success-copy-btn,
+.booking-success-route,
+.booking-success-route-path,
+.booking-success-btn-primary { gap: 0; }
+
+.booking-success-brand .brand-logo { margin-right: 8px; }
+.booking-success-card-header .booking-success-status-pill { margin-left: 10px; }
+.booking-success-status-pill::before { margin-right: 7px; }
+.booking-success-tracking .booking-success-copy-btn { margin-left: 12px; }
+.booking-success-tracking-number { margin-top: 4px; }
+.booking-success-copy-btn span { margin-left: 6px; }
+.booking-success-btn-primary svg { margin-left: 8px; }
+/* 6px under "Route"; items keep 8px apart across and, when wrapped, down. */
+.booking-success-route-path { margin-top: 2px; margin-bottom: -4px; }
+.booking-success-route-path > * { margin-top: 4px; margin-bottom: 4px; }
+.booking-success-route-path > svg { margin-left: 8px; margin-right: 8px; }
+
+/* ── Customer confirmation: buttons pinned to the bottom edge ──────────────
+   On most phones the receipt is taller than the screen, which left "View
+   Booking" below the fold. The bar is sticky: it pins to the bottom only
+   while more receipt is below it and sits in place wherever everything fits
+   (tablet, desktop, tall phones), so there it looks as before. .is-pinned
+   (BookShipmentPage) adds the top edge while pinned. Without sticky support
+   the bar stays in the flow, as before.
+
+   A sticky bar stops at its scroller's padding, so the page's bottom spacing
+   moves into the bar (safe area) and .booking-success-end (the rest). At rest
+   every distance equals the original padding and margins. Scoped to
+   .booking-success-page: the admin receipt shares these classes. */
+.booking-success-page { padding-bottom: 0; }
+
+.booking-success-page .booking-success-actions {
+  position: -webkit-sticky;
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  box-sizing: border-box;
+  margin-top: 12px;
+  padding: 12px 0 calc(12px + env(safe-area-inset-bottom, 0px));
+}
+
+/* Backing in the page colour, so the receipt scrolls out of sight under the
+   bar. It reaches across the page's side padding (edge to edge on phones)
+   and no further, so it never widens the scroller. */
+.booking-success-page .booking-success-actions::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: -16px;
+  bottom: 0;
+  left: -16px;
+  z-index: -1;
+  border-top: 1px solid transparent;
+  background: var(--bg);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.booking-success-page .booking-success-actions.is-pinned::before {
+  border-top-color: var(--border);
+  box-shadow: 0 -10px 24px -18px rgba(15, 23, 42, 0.35);
+}
+
+.booking-success-page .booking-success-end { height: 20px; }
+
+.booking-success-page .booking-success-heading:focus { outline: none; }
+
+@media (max-width: 479px) {
+  /* Side by side on phones too, so the pinned bar stays one row high. */
+  .booking-success-page .booking-success-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-top: 6px;
+  }
+  .booking-success-page .booking-success-actions::before { right: -12px; left: -12px; }
+  .booking-success-page .booking-success-end { height: 12px; }
+}
+
+@media (max-width: 359px) {
+  .booking-success-page .booking-success-btn-primary,
+  .booking-success-page .booking-success-btn-outline { padding-left: 8px; padding-right: 8px; }
+}
+
+@media (max-height: 600px) {
+  .booking-success-page .booking-success-actions { margin-top: 4px; }
+}
+
+/* Phones held sideways: a smaller heading and mark leave room for the
+   receipt between them and the pinned bar. */
+@media (max-height: 500px) {
+  .booking-success-page { padding-top: calc(16px + env(safe-area-inset-top, 0px)); }
+  .booking-success-page .booking-success-intro { margin-top: 10px; }
+  .booking-success-page .booking-success-mark { width: 48px; height: 48px; margin-bottom: 14px; }
+  .booking-success-page .booking-success-mark svg { width: 28px; height: 28px; }
+  .booking-success-page .booking-success-heading { font-size: 26px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .booking-success-page .booking-success-actions::before { transition: none; }
+}
+
+/* "We couldn't confirm your booking" — Review step (customer) and above the
+   Create Booking button (admin). Shown only when saving itself failed. */
+.booking-submit-failure {
+  display: flex;
+  align-items: flex-start;
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border: 1px solid rgba(220, 38, 38, 0.28);
+  border-radius: 14px;
+  background: var(--error-bg);
+  text-align: left;
+  /* Room when scrolled into view: clear of the sticky top bar, not flush
+     with the bottom edge. Ignored before iOS 14.5, where it lands flush. */
+  scroll-margin-top: 88px;
+  scroll-margin-bottom: 24px;
+}
+
+.booking-submit-failure-icon {
+  flex-shrink: 0;
+  margin: 1px 12px 0 0;
+  color: var(--error-text-strong);
+}
+
+.booking-submit-failure-body {
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  line-height: 1.5;
+  overflow-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+
+.booking-submit-failure-body p { margin: 0; }
+.booking-submit-failure-body p + p { margin-top: 4px; }
+
+.booking-submit-failure-title {
+  color: var(--error-text-strong);
+  font-size: var(--text-14);
+  font-weight: 700;
+}
+
+/* Admin only: the server's own wording, for troubleshooting. */
+.booking-submit-failure-body .booking-submit-failure-detail {
+  margin-top: 8px;
+  color: var(--text-tertiary);
+  font-size: var(--text-12);
+}
+
+/* ── Payment result popup ──────────────────────────────────────────────── */
+/* A plain card with a soft tint at the top instead of a fully tinted card:
+   the dark-mode "failed" popup used to be solid dark red. */
+.payment-result-modal.variant-success,
+.payment-result-modal.variant-error,
+.payment-result-modal.variant-processing {
+  border-color: var(--border);
+  background-color: var(--surface);
+}
+
+.payment-result-modal.variant-success { background-image: linear-gradient(180deg, var(--success-bg) 0, var(--surface) 170px); }
+.payment-result-modal.variant-error { background-image: linear-gradient(180deg, var(--error-bg) 0, var(--surface) 170px); }
+.payment-result-modal.variant-processing { background-image: linear-gradient(180deg, var(--info-bg) 0, var(--surface) 170px); }

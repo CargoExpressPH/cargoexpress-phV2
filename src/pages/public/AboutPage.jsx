@@ -1,0 +1,1563 @@
+import React, { Suspense, useState, useEffect, useRef, useCallback } from 'react';
+import { Link, useLocation } from 'react-router-dom';
+import {
+  createContactInquiry,
+  getCompanyInformation,
+  getCoverageAreas,
+  getPublicFeedback,
+  getFeaturedDeliveries,
+  getTrips
+} from '../../lib/database';
+import { lazyWithRetry } from '../../lib/lazyWithRetry';
+import { resolvePhotoUrls } from '../../lib/storage';
+import { getFeatureIcon } from '../../lib/featureIcons';
+import {
+  ArrowUp, Phone, MapPin, Globe, Loader, Send,
+  Mail, Clock, Calendar, CheckCircle2,
+  Navigation, Award, ChevronRight, ChevronDown, ChevronLeft, X, Play, Building2, TrendingUp, Users, MessageSquare,
+  Star, Package, Search, Sparkles, Image, Truck, AlertCircle
+} from 'lucide-react';
+import { useToast } from '../../hooks/useToast';
+import usePageTitle from '../../hooks/usePageTitle';
+import { toTitleCase, normalizeName } from '../../utils/string';
+import { validateName } from '../../utils/validation';
+import FocusTrap from '../../components/ui/FocusTrap';
+import { CenteredSpinner } from '../../components/ui/Loader';
+import Footer from '../../components/layout/Footer';
+import useScrollLock from '../../hooks/useScrollLock';
+import useFieldErrors from '../../hooks/useFieldErrors';
+import FieldError, { fieldAttrs, invalidClass } from '../../components/ui/FieldError';
+import CustomSelect from '../../components/ui/CustomSelect';
+import { formatPhDate } from '../../utils/datetime';
+import { useTripBooking } from '../../hooks/useTripBooking';
+import TripScheduleCard from '../../components/public/TripScheduleCard';
+import FAQAccordion from '../../components/public/FAQAccordion';
+import { FAQ_ITEMS } from '../../constants/faqContent';
+import { motion, useScroll, useTransform, AnimatePresence, MotionConfig } from 'framer-motion';
+import { BrandLogo, BrandWordmark } from '../../components/ui/BrandLogo';
+import BusinessStructuredData from '../../components/public/BusinessStructuredData';
+import { getGoogleMapsSearchUrl } from '../../utils/googleMaps';
+import { useDashboardPath } from '../../hooks/useDashboardPath';
+
+// A review card shows a short excerpt with "Read more" past this length,
+// breaking on the nearest earlier space so a word is never cut mid-way.
+const REVIEW_EXCERPT_LIMIT = 220;
+const getReviewExcerpt = (message) => {
+  if (!message || message.length <= REVIEW_EXCERPT_LIMIT) return message || '';
+  const cut = message.slice(0, REVIEW_EXCERPT_LIMIT);
+  const lastSpace = cut.lastIndexOf(' ');
+  return `${cut.slice(0, lastSpace > 40 ? lastSpace : REVIEW_EXCERPT_LIMIT)}…`;
+};
+
+// ─── Lightbox Component (with prev/next navigation) ───
+const Lightbox = ({ images, currentIndex, onClose, onNavigate }) => {
+  // Shared hook: ref-counted and iOS-safe. The previous inline version reset
+  // body overflow to 'unset' rather than restoring the prior value.
+  useScrollLock(currentIndex >= 0);
+
+  useEffect(() => {
+    if (currentIndex < 0) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') onClose();
+      if (e.key === 'ArrowLeft') onNavigate(-1);
+      if (e.key === 'ArrowRight') onNavigate(1);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [currentIndex, onClose, onNavigate]);
+
+  if (currentIndex < 0 || !images?.length) return null;
+  const image = images[currentIndex];
+  const hasPrev = currentIndex > 0;
+  const hasNext = currentIndex < images.length - 1;
+
+  return (
+    <FocusTrap active={currentIndex >= 0}>
+      <div className="about-lightbox-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-label="Image gallery lightbox">
+        <button className="about-lightbox-close" onClick={onClose} aria-label="Close lightbox">
+          <X size={24} />
+        </button>
+
+        {hasPrev && (
+          <button
+            className="about-lightbox-nav prev"
+            onClick={(e) => { e.stopPropagation(); onNavigate(-1); }}
+            aria-label="Previous image"
+          >
+            <ChevronLeft size={28} />
+          </button>
+        )}
+
+        {hasNext && (
+          <button
+            className="about-lightbox-nav next"
+            onClick={(e) => { e.stopPropagation(); onNavigate(1); }}
+            aria-label="Next image"
+          >
+            <ChevronRight size={28} />
+          </button>
+        )}
+
+        <img
+          src={image.image_url}
+          alt={image.title || 'Delivery photo'}
+          className="about-lightbox-img"
+          onClick={(e) => e.stopPropagation()}
+        />
+        {(image.title || image.description) && (
+          <div className="about-lightbox-info" onClick={(e) => e.stopPropagation()}>
+            {image.title && <div className="about-lightbox-info-title">{image.title}</div>}
+            {image.description && <div className="about-lightbox-info-desc">{image.description}</div>}
+            {images.length > 1 && (
+              <div className="about-lightbox-info-counter">
+                {currentIndex + 1} / {images.length}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </FocusTrap>
+  );
+};
+
+// ─── Star rating (shared by review cards and the review modal) ───
+const ReviewStars = ({ rating, size = 20 }) => (
+  <div className="about-review-stars">
+    {[1, 2, 3, 4, 5].map(star => (
+      <svg key={star} width={size} height={size} viewBox="0 0 24 24" fill={star <= rating ? "var(--warning)" : "var(--border)"} stroke="none">
+        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+      </svg>
+    ))}
+  </div>
+);
+
+// ─── Full-review modal — opened by "Read more" on a long review ───
+const ReviewModal = ({ review, onClose }) => {
+  useScrollLock(!!review);
+
+  useEffect(() => {
+    if (!review) return;
+    const handleKeyDown = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [review, onClose]);
+
+  if (!review) return null;
+  const firstName = review.profiles?.name?.split(' ')[0] || 'Customer';
+
+  return (
+    <FocusTrap active={!!review}>
+      <div className="about-review-modal-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-label="Full customer review">
+        <div className="about-review-modal" onClick={(e) => e.stopPropagation()}>
+          <button type="button" className="about-review-modal-close" onClick={onClose} aria-label="Close review">
+            <X size={20} />
+          </button>
+          <ReviewStars rating={review.rating} />
+          <p className="about-review-modal-text">{review.message}</p>
+          <div className="about-reviewer-row">
+            <div className="about-reviewer-avatar">{firstName[0].toUpperCase()}</div>
+            <div>
+              <div className="about-reviewer-name">{'—'} {firstName}</div>
+              {review.orders?.receiver_city && (
+                <div className="about-reviewer-location">
+                  Delivered to {review.orders.receiver_city}{review.orders.receiver_province ? `, ${review.orders.receiver_province}` : ''}
+                </div>
+              )}
+              {review.created_at && (
+                <div className="about-review-date">Reviewed {formatPhDate(review.created_at)}</div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </FocusTrap>
+  );
+};
+
+// ─── Interactive Map (loaded when it scrolls near view) ───
+// Leaflet is the heaviest part of this page and the map sits far below the
+// fold, so its code lives in AboutCoverageMap.jsx and is fetched just before
+// the visitor reaches it. The placeholder is the same box, so nothing jumps.
+const AboutCoverageMap = lazyWithRetry(() => import('./AboutCoverageMap'));
+
+const MapPlaceholder = React.forwardRef((props, ref) => (
+  <div ref={ref} className="about-map-box" aria-hidden="true" />
+));
+MapPlaceholder.displayName = 'MapPlaceholder';
+
+// If the map still cannot load after lazyWithRetry's retries (a dropped
+// connection), only the map box shows a message; the rest of the page stays.
+class MapLoadBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { failed: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <div
+        className="about-map-box"
+        role="status"
+        style={{ display: 'grid', placeItems: 'center', padding: 24, textAlign: 'center', color: '#1e3a5f' }}
+      >
+        The map could not load. Check your connection and reload the page.
+      </div>
+    );
+  }
+}
+
+const InteractiveMap = (props) => {
+  const boxRef = useRef(null);
+  const [nearView, setNearView] = useState(() => typeof IntersectionObserver === 'undefined');
+
+  useEffect(() => {
+    if (nearView || !boxRef.current) return undefined;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        setNearView(true);
+        observer.disconnect();
+      }
+    }, { rootMargin: '600px 0px' });
+    observer.observe(boxRef.current);
+    return () => observer.disconnect();
+  }, [nearView]);
+
+  if (!nearView) return <MapPlaceholder ref={boxRef} />;
+  return (
+    <MapLoadBoundary>
+      <Suspense fallback={<MapPlaceholder />}>
+        <AboutCoverageMap {...props} />
+      </Suspense>
+    </MapLoadBoundary>
+  );
+};
+
+const AnimatedCounter = ({ value }) => {
+  const [count, setCount] = useState(0);
+  const elementRef = useRef(null);
+
+  useEffect(() => {
+    let start = 0;
+    const end = parseInt(value, 10);
+    if (isNaN(end) || end === 0) {
+      setCount(value);
+      return;
+    }
+
+    let observer;
+    let animationFrameId;
+    let startTime = null;
+    const duration = 1200;
+
+    const animate = (timestamp) => {
+      if (!startTime) startTime = timestamp;
+      const progress = Math.min((timestamp - startTime) / duration, 1);
+      const easeOutQuad = progress * (2 - progress);
+      const currentCount = Math.floor(easeOutQuad * (end - start) + start);
+      setCount(currentCount);
+
+      if (progress < 1) {
+        animationFrameId = requestAnimationFrame(animate);
+      } else {
+        setCount(end);
+      }
+    };
+
+    observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        animationFrameId = requestAnimationFrame(animate);
+        observer.disconnect();
+      }
+    }, { threshold: 0.1 });
+
+    if (elementRef.current) {
+      observer.observe(elementRef.current);
+    }
+
+    return () => {
+      if (observer) observer.disconnect();
+      if (animationFrameId) cancelAnimationFrame(animationFrameId);
+    };
+  }, [value]);
+
+  return <span ref={elementRef}>{typeof count === 'number' ? count.toLocaleString() : count}</span>;
+};
+
+
+// ─── Section anchor IDs and labels ───
+// Height reserved by the fixed glass nav — anchors must clear it or the section
+// header lands underneath the bar and the click looks like it hit blank space.
+const NAV_OFFSET = 88;
+
+// Nav intentionally shows only these 4 — Our Story, Features, Gallery and
+// FAQ remain real sections on the page (see their <motion.section> ids
+// below), just no longer linked from the top nav to keep it uncluttered.
+const SECTIONS = [
+  { id: 'coverage', label: 'Coverage Area' },
+  { id: 'trip-schedules', label: 'Trip Schedules' },
+  { id: 'feedback', label: 'Reviews' },
+  { id: 'contact', label: 'Contact Us' },
+];
+
+// ═══════════════════════════════════════════════════════════
+// MAIN ABOUT PAGE COMPONENT
+// ═══════════════════════════════════════════════════════════
+const AboutPage = () => {
+  usePageTitle('About Us');
+  const toast = useToast();
+  const location = useLocation();
+  const selectTrip = useTripBooking();
+  const dashboardPath = useDashboardPath();
+
+  const [scrolled, setScrolled] = useState(false);
+  const [showBackToTop, setShowBackToTop] = useState(false);
+  const [scrollProgress, setScrollProgress] = useState(0);
+  const [activeSection, setActiveSection] = useState('hero');
+  const [form, setForm] = useState({ name: '', phone: '', email: '', message: '', wantsAnnouncements: false });
+  const { errors, validate, clearError } = useFieldErrors();
+  const [loading, setLoading] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState(-1);
+  const [selectedRegionId, setSelectedRegionId] = useState(null);
+  const [selectedRating, setSelectedRating] = useState('all');
+  const [citySearchQuery, setCitySearchQuery] = useState('');
+  const feedbackScrollRef = useRef(null);
+  const [feedbackScrollState, setFeedbackScrollState] = useState({ canScrollLeft: false, canScrollRight: false, overflowing: false });
+  const [expandedReview, setExpandedReview] = useState(null);
+  
+  const { scrollY } = useScroll();
+  const yHero = useTransform(scrollY, [0, 600], [0, 200]);
+  const opacityHero = useTransform(scrollY, [0, 450], [1, 0.2]);
+  
+  const [data, setData] = useState({
+    info: null, features: [], highlights: [], coverage: [], feedback: []
+  });
+  const [fetching, setFetching] = useState(true);
+  // The page renders once the company info is in; coverage, featured
+  // deliveries and reviews arrive afterwards. Until they do, their sections
+  // show a spinner rather than a premature "nothing here yet".
+  const [sectionsLoading, setSectionsLoading] = useState(true);
+  // Loaded independently of the Promise.all below: a trips-fetch failure
+  // should only blank out the Trip Schedules section, not the whole page.
+  const [tripsState, setTripsState] = useState({ trips: [], loading: true, error: null });
+  const [isOnline, setIsOnline] = useState(() =>
+    typeof navigator === 'undefined' ? true : navigator.onLine
+  );
+  const [systemStatus, setSystemStatus] = useState(() =>
+    typeof navigator === 'undefined' || navigator.onLine ? 'checking' : 'offline'
+  );
+
+  // ─── Scroll handling (scroll progress, active section, back-to-top) ───
+  useEffect(() => {
+    const handleScroll = () => {
+      const y = window.scrollY;
+      // The nav sits on the dark hero, so its links are white there. Flip to the
+      // solid/dark treatment only once the nav has actually cleared the hero —
+      // switching at a fixed 50px left dark text on the dark hero (and, on the way
+      // back, white text on the light sections below it).
+      const hero = document.getElementById('hero');
+      const heroBottom = hero ? hero.offsetTop + hero.offsetHeight : 0;
+      setScrolled(y + NAV_OFFSET >= heroBottom);
+      setShowBackToTop(y > 400);
+      
+      // Calculate scroll progress
+      const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+      setScrollProgress(docHeight > 0 ? (y / docHeight) * 100 : 0);
+
+      // Determine active section
+      const sectionIds = SECTIONS.map(s => s.id);
+      let currentActive = 'hero';
+      for (const id of sectionIds) {
+        const el = document.getElementById(id);
+        if (el) {
+          const rect = el.getBoundingClientRect();
+          if (rect.top <= 150) {
+            currentActive = id;
+          }
+        }
+      }
+      setActiveSection(currentActive);
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // ─── Data loading ───
+  useEffect(() => {
+    let isMounted = true;
+    let requestSequence = 0;
+
+    const loadData = async ({ initial = false } = {}) => {
+      const requestId = ++requestSequence;
+      const browserOnline = typeof navigator === 'undefined' || navigator.onLine;
+
+      if (!browserOnline) {
+        if (!isMounted || requestId !== requestSequence) return;
+        setIsOnline(false);
+        setSystemStatus('offline');
+        if (initial) setFetching(false);
+        setSectionsLoading(false);
+        return;
+      }
+
+      try {
+        if (initial) setFetching(true);
+        setSystemStatus('checking');
+        // Paint the page (hero, story, contact) as soon as the company info
+        // lands instead of after all four queries and the photo lookups.
+        // Waiting for the slowest one kept the whole page a spinner, then
+        // rendered it in one long main-thread block.
+        const infoPromise = getCompanyInformation();
+        infoPromise.then((earlyInfo) => {
+          if (!isMounted || requestId !== requestSequence) return;
+          setData((prev) => ({ ...prev, info: earlyInfo, features: earlyInfo?.features || [] }));
+          setFetching(false);
+        }).catch(() => { /* reported by the Promise.all below */ });
+        const [info, highlights, coverage, feedback] = await Promise.all([
+          infoPromise, getFeaturedDeliveries(),
+          getCoverageAreas(), getPublicFeedback()
+        ]);
+        const features = info?.features || [];
+
+        // Resolve featured-shipment photos — RPC returns a single
+        // `featured_photo` path. Customer feedback carries no photo of its
+        // own (see getPublicFeedback()), so there is nothing to resolve for
+        // the feedback list — it renders straight from the RPC rows.
+        const resolvedHighlights = await Promise.all(highlights.map(async (h) => {
+          const path = h.featured_photo || null;
+          if (!path) return { ...h, resolved_image: null };
+          try {
+            const urls = await resolvePhotoUrls([path]);
+            return { ...h, resolved_image: urls[0] };
+          } catch (e) {
+            return { ...h, resolved_image: null };
+          }
+        }));
+
+        if (isMounted && requestId === requestSequence) {
+          setIsOnline(true);
+          setData({ info, features, highlights: resolvedHighlights.filter(h => h.resolved_image), coverage, feedback });
+          setSystemStatus('online');
+        }
+      } catch (err) {
+        console.error('Failed to load company info', err);
+        if (isMounted && requestId === requestSequence) {
+          const stillOnline = typeof navigator === 'undefined' || navigator.onLine;
+          setIsOnline(stillOnline);
+          setSystemStatus(stillOnline ? 'unavailable' : 'offline');
+        }
+      } finally {
+        if (isMounted && requestId === requestSequence) {
+          setFetching(false);
+          setSectionsLoading(false);
+        }
+      }
+    };
+
+    const updateOnlineState = () => {
+      const online = navigator.onLine;
+      setIsOnline(online);
+
+      if (!online) {
+        requestSequence += 1;
+        setSystemStatus('offline');
+        setFetching(false);
+        setSectionsLoading(false);
+        return;
+      }
+
+      // Re-check the backend when the connection returns instead of leaving
+      // the footer stuck on the previous offline/unavailable result.
+      loadData();
+    };
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible' && navigator.onLine) loadData();
+    };
+
+    loadData({ initial: true });
+    window.addEventListener('online', updateOnlineState);
+    window.addEventListener('offline', updateOnlineState);
+    window.addEventListener('focus', refreshWhenVisible);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+
+    return () => {
+      isMounted = false;
+      window.removeEventListener('online', updateOnlineState);
+      window.removeEventListener('offline', updateOnlineState);
+      window.removeEventListener('focus', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
+  }, []);
+
+  // ─── Trip Schedules data (same source as the customer Trips page) ───
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadTrips = async () => {
+      if (isMounted) setTripsState(prev => ({ ...prev, loading: true, error: null }));
+      try {
+        const activeTrips = await getTrips('active');
+        if (isMounted) setTripsState({ trips: activeTrips || [], loading: false, error: null });
+      } catch (err) {
+        console.error('Failed to load trip schedules', err);
+        if (isMounted) {
+          setTripsState({ trips: [], loading: false, error: 'Trip schedules could not be loaded. Please try again later.' });
+        }
+      }
+    };
+
+    loadTrips();
+    return () => { isMounted = false; };
+  }, []);
+
+  // ─── Jump to a section when the URL already carries a hash, e.g. the
+  // "View Trip Schedules" (/about#trip-schedules) links on the home page and
+  // Footer, Footer's "FAQs" (/about#faq), or a direct/bookmarked link. Waits for the loading spinner to
+  // clear first, since section elements don't exist in the DOM until then. ───
+  useEffect(() => {
+    // Also wait for the later sections: they grow the page above most
+    // targets, so jumping earlier would land short of the section.
+    if (fetching || sectionsLoading) return;
+    const hash = location.hash?.replace('#', '');
+    if (!hash) return;
+    const raf = requestAnimationFrame(() => scrollToSection(hash));
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetching, sectionsLoading, location.hash]);
+
+  // ─── Form handlers ───
+  const PHONE_RE = /^09\d{9}$/;
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  const handlePhoneInput = (e) => {
+    let val = e.target.value;
+    if (/^\d+$/.test(val) && val.length > 11) {
+      val = val.slice(0, 11);
+    }
+    setForm(p => ({ ...p, phone: val.slice(0, 100) }));
+  };
+
+  const normalizePhone = (value) => {
+    let digits = String(value).replace(/[\s\-().]/g, '');
+    if (digits.startsWith('+63')) return `0${digits.slice(3)}`;
+    if (digits.startsWith('63') && digits.length === 12) return `0${digits.slice(2)}`;
+    return digits;
+  };
+
+  /** Phone and email are now both required (previously either/or), so each
+   *  gets its own field and its own rule. */
+  const phoneFieldError = (value) => {
+    if (!value) return 'Enter your mobile number so we can reply.';
+    if (!/\d/.test(value)) return 'Please enter a valid mobile number.';
+    return PHONE_RE.test(normalizePhone(value))
+      ? null
+      : 'Mobile number must be exactly 11 digits and start with 09.';
+  };
+
+  const emailFieldError = (value) => {
+    if (!value) return 'Enter your email address so we can reply.';
+    return EMAIL_RE.test(value) ? null : 'Please enter a valid email address.';
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    const phone = form.phone.trim();
+    const email = form.email.trim();
+    const ok = validate({
+      name: validateName(form.name),
+      phone: phoneFieldError(phone),
+      email: emailFieldError(email),
+      message: !form.message.trim() ? 'Please write your message.' : null,
+    });
+    if (!ok) return;
+
+    setLoading(true);
+    try {
+      await createContactInquiry({
+        name: normalizeName(form.name),
+        message: form.message.trim(),
+        contact_phone: normalizePhone(phone),
+        contact_email: email,
+        wants_announcements: form.wantsAnnouncements,
+      });
+      toast.success('Message sent! We will contact you soon.');
+      setForm({ name: '', phone: '', email: '', message: '', wantsAnnouncements: false });
+    } catch (err) {
+      toast.error(err.message || 'Failed to send message. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ─── Lightbox navigation ───
+  const lightboxImages = data.highlights.map(h => ({
+    image_url: h.resolved_image,
+    title: h.featured_title,
+    description: h.featured_caption,
+  }));
+  const handleLightboxNavigate = useCallback((direction) => {
+    setLightboxIndex(prev => {
+      const next = prev + direction;
+      if (next < 0 || next >= lightboxImages.length) return prev;
+      return next;
+    });
+  }, [lightboxImages.length]);
+
+  // ─── Feedback horizontal scroller: nav-button availability, kept in sync
+  // with actual scroll position/content width rather than assumed ───
+  const updateFeedbackScrollState = useCallback(() => {
+    const el = feedbackScrollRef.current;
+    if (!el) return;
+    setFeedbackScrollState({
+      canScrollLeft: el.scrollLeft > 4,
+      canScrollRight: el.scrollLeft < el.scrollWidth - el.clientWidth - 4,
+      overflowing: el.scrollWidth > el.clientWidth + 4,
+    });
+  }, []);
+
+  useEffect(() => {
+    const el = feedbackScrollRef.current;
+    if (!el) return undefined;
+    updateFeedbackScrollState();
+    el.addEventListener('scroll', updateFeedbackScrollState, { passive: true });
+    window.addEventListener('resize', updateFeedbackScrollState);
+    return () => {
+      el.removeEventListener('scroll', updateFeedbackScrollState);
+      window.removeEventListener('resize', updateFeedbackScrollState);
+    };
+    // data.feedback (not the per-render-recomputed filteredFeedback) is the
+    // stable trigger for "the card list actually changed" — it only changes
+    // when a fetch completes, not on every render.
+  }, [data.feedback, updateFeedbackScrollState]);
+
+  // Reset horizontal scroll to the start whenever the rating filter changes,
+  // per the request — a stale mid-scroll position from the previous filter
+  // would otherwise show the wrong cards first under the new one.
+  useEffect(() => {
+    const el = feedbackScrollRef.current;
+    if (!el) return;
+    el.scrollTo({ left: 0, behavior: 'auto' });
+    const raf = requestAnimationFrame(updateFeedbackScrollState);
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRating]);
+
+  const scrollFeedbackBy = (direction) => {
+    const el = feedbackScrollRef.current;
+    if (!el) return;
+    const card = el.querySelector('.about-feedback-card');
+    const step = card ? card.getBoundingClientRect().width + 14 : el.clientWidth * 0.9;
+    el.scrollBy({ left: direction * step, behavior: 'smooth' });
+  };
+
+  // ─── Section scroll helper ───
+  const scrollToSection = (id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (id === 'hero') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    // Offset by the fixed nav so the section header lands just under the bar
+    // instead of behind it (which read as scrolling into empty whitespace).
+    const top = el.getBoundingClientRect().top + window.scrollY - NAV_OFFSET;
+    window.scrollTo({ top: Math.max(top, 0), behavior: 'smooth' });
+  };
+
+  const { info, features, highlights, coverage, feedback } = data;
+  const resolvedSystemStatus = !isOnline ? 'offline' : systemStatus;
+  const systemStatusLabel = {
+    checking: 'Checking System',
+    online: 'System Online',
+    offline: 'System Offline',
+    unavailable: 'System Unavailable',
+  }[resolvedSystemStatus] || 'Checking System';
+
+  // Filter feedback by rating state
+  const filteredFeedback = feedback?.filter(fb => {
+    if (selectedRating === 'all') return true;
+    return fb.rating === parseInt(selectedRating, 10);
+  }) || [];
+
+  // ─── Loading state ───
+  if (fetching) return <CenteredSpinner />;
+
+  const companyName = info?.name || 'CargoExpress PH';
+  const bannerImage = info?.banner_image_url || 'https://images.unsplash.com/photo-1586528116311-ad8ed3891db8?auto=format&fit=crop&q=80&w=2000';
+
+  // Framer motion variants for staggered children
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: { staggerChildren: 0.1, delayChildren: 0.1 }
+    }
+  };
+  const itemVariants = {
+    hidden: { opacity: 0, y: 24 },
+    visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: [0.16, 1, 0.3, 1] } }
+  };
+
+  return (
+    <MotionConfig reducedMotion="user">
+    <div className="public-about-page">
+      <a href="#hero" className="skip-link">Skip to main content</a>
+
+      {/* --- Scroll Progress Bar --- */}
+      <div className="about-scroll-progress" style={{ width: `${scrollProgress}%` }} />
+
+      {/* --- 1. Navigation --- */}
+      <nav className={`about-glass-nav ${scrolled ? 'scrolled' : ''}`}>
+        <div className="about-nav-container">
+          <div className="about-nav-brand">
+            <BrandLogo size={36} decorative />
+            <h1>
+              <BrandWordmark tone={scrolled ? 'default' : 'on-dark'} />
+            </h1>
+          </div>
+
+          {/* Section navigation links */}
+          <div className="about-nav-links">
+            {SECTIONS.filter(s => s.id !== 'hero').map(s => (
+              <button
+                key={s.id}
+                className={`about-nav-link ${scrolled ? 'scrolled' : 'transparent'} ${activeSection === s.id ? 'active' : ''}`}
+                onClick={() => scrollToSection(s.id)}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+
+          <Link
+            to={dashboardPath || '/login'}
+            className={`about-login-btn ${scrolled ? 'scrolled' : 'transparent'}`}
+          >
+            {dashboardPath
+              ? <span><span className="about-login-btn-prefix">Go to </span>Dashboard</span>
+              : 'Sign In'} <ChevronRight size={16} />
+          </Link>
+        </div>
+      </nav>
+
+      {/* ═══ 2. Hero Section ═══ */}
+      <section id="hero" className="about-hero" tabIndex={-1}>
+        <motion.div 
+          className="about-hero-bg"
+          style={{ 
+            backgroundImage: `url(${bannerImage})`,
+            y: yHero,
+            opacity: opacityHero
+          }}
+        />
+        <div className="about-hero-overlay" />
+        
+        {/* Decorative gradient orbs */}
+        <div className="about-gradient-orb about-gradient-orb-primary" />
+        <div className="about-gradient-orb about-gradient-orb-accent" />
+
+        {/* A rise only, no fade: starting at opacity 0 hid the page's largest
+            text (its LCP element) until the animation ran. */}
+        <motion.div
+          className="about-hero-content"
+          initial={{ y: 24 }}
+          animate={{ y: 0 }}
+          transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+        >
+          <div className="about-hero-badge">
+            Manila ⇄ Bohol Cargo
+          </div>
+          <h2 className="about-hero-heading">
+            {info?.banner_title || 'Deliveries Made Simple.'}
+          </h2>
+          <p className="about-hero-subtext">
+            {info?.banner_description || info?.short_description || 'Connecting businesses and families through reliable logistics.'}
+          </p>
+          <div className="about-hero-cta-row">
+            <a href="#contact" className="about-hero-cta-primary">
+              Contact Us <Send size={18} />
+            </a>
+            {info?.banner_button_text && info?.banner_button_link && (
+              <Link to={info.banner_button_link} className="about-hero-cta-secondary">
+                {info.banner_button_text}
+              </Link>
+            )}
+          </div>
+        </motion.div>
+
+        {/* Scroll Down Indicator */}
+        <button className="about-scroll-hint" onClick={() => scrollToSection('story')} aria-label="Scroll down">
+          <ChevronDown size={28} />
+        </button>
+
+      </section>
+
+      {/* ═══ Main Content ═══ */}
+      <div className="about-content-wrapper">
+
+        {/* ═══ 4. Our Story ═══ */}
+        <motion.section 
+          id="story"
+          className="about-section"
+          initial={{ opacity: 0, y: 30 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: "-100px" }}
+          transition={{ duration: 0.6 }}
+        >
+          <div className="about-grid-2">
+            <div>
+              <h2 className="about-story-heading">
+                About <span className="about-text-gradient">CargoExpress PH</span>.
+              </h2>
+              <p className="about-story-body">
+                {info?.long_description || 'We are a dedicated logistics provider ensuring safe and timely delivery of your cargo.'}
+              </p>
+
+              {/* Timeline milestones */}
+              <div className="about-timeline">
+                {[
+                  { year: 'Founded', text: `${companyName} began operations, connecting Manila to Bohol` },
+                  { year: 'Growth', text: 'Expanded coverage to Cavite, Laguna, Bulacan & Batangas' },
+                  { year: 'Our Promise', text: 'Committed to delivering every package with care, speed, and reliability across every route we serve' },
+                ].map((item, i) => (
+                  <motion.div 
+                    key={i} 
+                    className="about-timeline-item"
+                    initial={{ opacity: 0, x: -20 }}
+                    whileInView={{ opacity: 1, x: 0 }}
+                    viewport={{ once: true }}
+                    transition={{ delay: i * 0.15, duration: 0.5 }}
+                  >
+                    <div className="about-timeline-dot" />
+                    <div className="about-timeline-year">{item.year}</div>
+                    <div className="about-timeline-text">{item.text}</div>
+                  </motion.div>
+                ))}
+              </div>
+            </div>
+            
+            {/* Image collage */}
+            <div className="about-story-image-container">
+              {/* Decorative dot pattern */}
+              <div className="about-dot-pattern about-dot-top" />
+              <div className="about-dot-pattern about-dot-bottom" />
+              
+              <div className="about-story-img-wrap">
+                <div className="about-story-img-glow" />
+                <img 
+                  src={bannerImage} 
+                  alt={`${companyName} Logistics`} 
+                  className="about-story-main-img"
+                  fetchPriority="high"
+                />
+                <img 
+                  src={bannerImage} 
+                  alt={`${companyName} Delivery`} 
+                  className="about-story-overlay-img"
+                  fetchPriority="high"
+                />
+              </div>
+            </div>
+          </div>
+        </motion.section>
+
+        {/* ═══ 5. Features Grid ═══ */}
+        <motion.section
+          id="features"
+          className="about-section"
+          initial={{ opacity: 0, y: 30 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: "-100px" }}
+          transition={{ duration: 0.6 }}
+        >
+          {features?.length > 0 ? (
+            <>
+              <div className="about-section-header">
+                <div className="about-section-label">Why Choose Us</div>
+                <h2 className="about-section-title">The CargoExpress Advantage</h2>
+              </div>
+              <motion.div
+                className="about-features-grid"
+                variants={containerVariants}
+                initial="hidden"
+                whileInView="visible"
+                viewport={{ once: true, margin: "-80px" }}
+              >
+                {features.map((f) => {
+                  const Icon = getFeatureIcon(f.icon);
+                  return (
+                    <motion.div
+                      key={f.id}
+                      className="about-bento-card"
+                      variants={itemVariants}
+                    >
+                      <div className="about-feature-icon">
+                        <Icon size={28} />
+                      </div>
+                      <div>
+                        <h3 className="about-feature-title">{f.title}</h3>
+                        <p className="about-feature-desc">{f.description}</p>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </motion.div>
+            </>
+          ) : (
+            <div className="about-empty-state">
+              <Sparkles size={48} className="about-empty-icon" />
+              <div className="about-empty-text">Our feature details are being updated. Check back soon.</div>
+            </div>
+          )}
+        </motion.section>
+
+        {/* ═══ 6. Coverage Areas ═══ */}
+        <motion.section
+          id="coverage"
+          className="about-section"
+          initial={{ opacity: 0, y: 30 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: "-100px" }}
+          transition={{ duration: 0.6 }}
+        >
+          {coverage?.length > 0 ? (
+            <>
+          <div className="about-bento-card about-coverage-header-card">
+              <div className="about-coverage-grid">
+                <div>
+                  <div className="about-coverage-icon-box">
+                    <MapPin size={28} />
+                  </div>
+                  <h2 className="about-coverage-heading">Where We Deliver</h2>
+                  <p className="about-coverage-desc">Pickup and delivery between Bohol and our listed Luzon areas, in both directions. Select an area to see its covered cities and municipalities. Confirm your exact address with our team before booking.</p>
+                  
+                  <InteractiveMap 
+                    coverage={coverage} 
+                    selectedRegionId={selectedRegionId} 
+                    onSelectRegion={setSelectedRegionId} 
+                  />
+                </div>
+                
+                <div className="about-coverage-regions">
+                  <div className="about-coverage-search-wrap">
+                    <div className="about-coverage-search-inner">
+                      <Search size={18} className="about-coverage-search-icon" />
+                      <input 
+                        id="about-coverage-search"
+                        name="qmunicipality"
+                        type="search"
+                        maxLength={100}
+                        enterKeyHint="search"
+                        placeholder="Search areas, cities or municipalities..."
+                        aria-label="Search coverage areas, cities or municipalities"
+                        value={citySearchQuery}
+                        onChange={(e) => setCitySearchQuery(e.target.value)}
+                        className="about-coverage-search-input"
+                      />
+                    </div>
+                  </div>
+                  {citySearchQuery && !coverage.some(region =>
+                    region.name.toLowerCase().includes(citySearchQuery.trim().toLowerCase()) ||
+                    region.municipalities?.some(m => m.name.toLowerCase().includes(citySearchQuery.trim().toLowerCase()))
+                  ) && (
+                    <div className="about-region-card about-coverage-no-result">
+                      <Search size={22} className="about-coverage-no-result-icon" aria-hidden="true" />
+                      <p className="about-coverage-no-result-title">No matching areas found</p>
+                      <p className="about-coverage-no-result-desc">
+                        Nothing matches “{citySearchQuery}”. Try a different spelling or a nearby town.
+                      </p>
+                    </div>
+                  )}
+                  {coverage.map((region) => {
+                    const matchesRegion = region.name.toLowerCase().includes(citySearchQuery.trim().toLowerCase());
+                    const filteredMunis = region.municipalities?.filter(m => 
+                      matchesRegion ||
+                      m.name.toLowerCase().includes(citySearchQuery.trim().toLowerCase())
+                    ) || [];
+
+                    if (citySearchQuery && !matchesRegion && filteredMunis.length === 0) return null;
+
+                    const isSelected = selectedRegionId === region.id;
+                    const isExpanded = isSelected || citySearchQuery.length > 0;
+
+                    return (
+                      <div 
+                        key={region.id} 
+                        className={`about-region-card ${isSelected ? 'selected' : ''}`}
+                        onClick={() => setSelectedRegionId(isExpanded && !citySearchQuery ? null : region.id)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedRegionId(isExpanded && !citySearchQuery ? null : region.id); } }}
+                        role="button"
+                        tabIndex={0}
+                        aria-expanded={isExpanded}
+                      >
+                        <h4>
+                          <span className="about-region-label-wrap">
+                            <MapPin size={18} className="about-region-pin-icon" /> {region.name}
+                          </span>
+                          <ChevronDown size={18} className="about-region-chevron" />
+                        </h4>
+                        
+                        <AnimatePresence initial={false}>
+                          {isExpanded && (
+                            <motion.div 
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: 'auto', opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              transition={{ duration: 0.2, ease: 'easeInOut' }}
+                            >
+                              <div className="about-region-munis">
+                                {filteredMunis.map(muni => (
+                                  <div key={muni.id} className="about-muni-tag">
+                                    {muni.name}
+                                  </div>
+                                ))}
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+            </>
+          ) : sectionsLoading ? (
+            <CenteredSpinner />
+          ) : (
+            <div className="about-empty-state">
+              <MapPin size={48} className="about-empty-icon" />
+              <div className="about-empty-text">Coverage information is being updated. Check back soon.</div>
+            </div>
+          )}
+        </motion.section>
+
+        {/* ═══ 6b. Trip Schedules ═══ */}
+        <motion.section
+          id="trip-schedules"
+          className="about-section"
+          initial={{ opacity: 0, y: 30 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: "-100px" }}
+          transition={{ duration: 0.6 }}
+        >
+          <div className="about-section-header">
+            <div className="about-section-label">Trip Schedules</div>
+            <h2 className="about-section-title">Upcoming Trips</h2>
+            <p className="about-trip-section-subtitle">
+              See our next scheduled routes and reserve cargo space ahead of time.
+            </p>
+          </div>
+
+          {tripsState.loading ? (
+            <CenteredSpinner />
+          ) : tripsState.error ? (
+            <div className="about-empty-state" role="alert">
+              <AlertCircle size={48} className="about-empty-icon" />
+              <div className="about-empty-text">{tripsState.error}</div>
+            </div>
+          ) : tripsState.trips.length === 0 ? (
+            <div className="about-empty-state">
+              <Truck size={48} className="about-empty-icon" />
+              <div className="about-empty-text">No upcoming trips are available right now.</div>
+            </div>
+          ) : (
+            <>
+              <motion.div
+                className="about-trip-grid"
+                variants={containerVariants}
+                initial="hidden"
+                whileInView="visible"
+                viewport={{ once: true, margin: "-80px" }}
+              >
+                {/* Every trip is listed here: this section is where all
+                    "View Trip Schedules" links land, so there is no
+                    separate "view all" page to send visitors to. */}
+                {tripsState.trips.map((trip) => (
+                  <motion.div key={trip.id} variants={itemVariants}>
+                    <TripScheduleCard
+                      trip={trip}
+                      onSelect={(selected) => selectTrip(selected, { from: { pathname: '/about', hash: '#trip-schedules' } })}
+                    />
+                  </motion.div>
+                ))}
+              </motion.div>
+              <div className="about-trip-section-actions">
+                <Link to="/customer/book" className="btn btn-primary">
+                  Book Cargo
+                </Link>
+              </div>
+            </>
+          )}
+        </motion.section>
+
+        {/* ═══ 7. Featured Shipments ═══ */}
+        {highlights?.length > 0 && (
+          <motion.section
+            id="highlights"
+            className="about-section"
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: "-100px" }}
+            transition={{ duration: 0.6 }}
+          >
+            <div className="about-section-header">
+              <div className="about-section-label">Delivery Highlights</div>
+              <h2 className="about-section-title">Featured Shipments</h2>
+            </div>
+
+            <motion.div
+              className="about-highlights-grid"
+              variants={containerVariants}
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true, margin: "-60px" }}
+            >
+              {highlights.map((highlight, idx) => (
+                <motion.button
+                  type="button"
+                  key={highlight.id}
+                  className="about-highlight-card"
+                  onClick={() => setLightboxIndex(idx)}
+                  aria-label={`View delivery photo for ${highlight.featured_title}`}
+                  variants={itemVariants}
+                >
+                  <img
+                    src={highlight.resolved_image}
+                    alt={highlight.featured_title || 'Delivery photo'}
+                    loading="lazy"
+                    onError={(e) => {
+                      e.target.closest('.about-highlight-card').style.display = 'none';
+                    }}
+                  />
+                  <div className="about-highlight-overlay">
+                    <div className="about-highlight-title about-highlight-title-inner">
+                      <Package size={18} className="about-highlight-pkg-icon" />
+                      <span>{highlight.featured_title}</span>
+                    </div>
+                    {highlight.featured_caption && (
+                      <div className="about-highlight-caption">
+                        {highlight.featured_caption}
+                      </div>
+                    )}
+                    <div className="about-highlight-meta">
+                      <span>{highlight.receiver_city}{highlight.receiver_province ? `, ${highlight.receiver_province}` : ''}</span>
+                      {highlight.delivered_at && (
+                        <span>Delivered {formatPhDate(highlight.delivered_at)}</span>
+                      )}
+                    </div>
+                  </div>
+                </motion.button>
+              ))}
+            </motion.div>
+          </motion.section>
+        )}
+
+        {/* ═══ 8. Customer Feedback ═══ */}
+        <motion.section 
+          id="feedback"
+          className="about-section"
+          initial={{ opacity: 0, y: 30 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: "-100px" }}
+          transition={{ duration: 0.6 }}
+        >
+          <div className="about-section-header-sm">
+            <div className="about-section-label">Feedback</div>
+            <h2 className="about-section-title">What Our Customers Say</h2>
+          </div>
+
+          {/* Rating filter \u2014 compact chips on desktop, one dropdown once
+              narrower than they comfortably fit (CSS swap, same state). */}
+          <div className="about-feedback-filters">
+            <div className="about-filter-chips">
+              {['all', '5', '4', '3', '2', '1'].map(rating => {
+                const isActive = selectedRating === rating;
+                return (
+                  <button
+                    key={rating}
+                    type="button"
+                    className={`about-filter-chip ${isActive ? 'active' : ''}`}
+                    onClick={() => setSelectedRating(rating)}
+                  >
+                    {rating === 'all' ? 'All Reviews' : `${rating} Star${rating !== '1' ? 's' : ''}`}
+                    {rating !== 'all' && (
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill={isActive ? "#fff" : "var(--warning)"} stroke="none">
+                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                      </svg>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="about-filter-select-wrap">
+              <CustomSelect
+                id="about-rating-filter"
+                className="about-rating-select"
+                value={selectedRating}
+                onChange={(e) => setSelectedRating(e.target.value)}
+                aria-label="Filter reviews by rating"
+              >
+                <option value="all">All Ratings</option>
+                <option value="5">5 Stars</option>
+                <option value="4">4 Stars</option>
+                <option value="3">3 Stars</option>
+                <option value="2">2 Stars</option>
+                <option value="1">1 Star</option>
+              </CustomSelect>
+            </div>
+          </div>
+
+          {(!feedback || feedback.length === 0) && sectionsLoading ? (
+            <CenteredSpinner />
+          ) : (!feedback || feedback.length === 0) ? (
+            <div className="about-empty-state about-empty-state-lg">
+              <MessageSquare size={48} className="about-empty-icon" />
+              <div className="about-empty-text">No customer feedback has been submitted yet.</div>
+            </div>
+          ) : filteredFeedback.length === 0 ? (
+            <div className="about-empty-state about-empty-state-lg">
+              <MessageSquare size={48} className="about-empty-icon" />
+              <div className="about-empty-text">No {selectedRating}-star reviews found.</div>
+            </div>
+          ) : (
+            <div className="about-reviews-scroller">
+              {feedbackScrollState.overflowing && filteredFeedback.length > 1 && (
+                <button
+                  type="button"
+                  className="about-reviews-nav prev"
+                  onClick={() => scrollFeedbackBy(-1)}
+                  disabled={!feedbackScrollState.canScrollLeft}
+                  aria-label="Previous reviews"
+                >
+                  <ChevronLeft size={20} />
+                </button>
+              )}
+
+              <motion.div
+                className="about-reviews-scroll"
+                ref={feedbackScrollRef}
+                variants={containerVariants}
+                initial="hidden"
+                whileInView="visible"
+                viewport={{ once: true, margin: "-60px" }}
+                role="list"
+                aria-label="Customer reviews"
+                tabIndex={0}
+              >
+                {filteredFeedback.map((fb) => {
+                  const firstName = fb.profiles?.name?.split(' ')[0] || 'Customer';
+                  const excerpt = getReviewExcerpt(fb.message);
+                  const isTruncated = excerpt !== fb.message;
+                  return (
+                    <motion.div
+                      key={fb.id}
+                      className="about-feedback-card"
+                      variants={itemVariants}
+                      role="listitem"
+                    >
+                      <ReviewStars rating={fb.rating} />
+                      <p className="about-review-text">
+                        {excerpt}
+                        {isTruncated && (
+                          <>
+                            {' '}
+                            <button type="button" className="about-review-readmore" onClick={() => setExpandedReview(fb)}>
+                              Read more
+                            </button>
+                          </>
+                        )}
+                      </p>
+
+                      <div className="about-reviewer-row">
+                        <div className="about-reviewer-avatar">
+                          {firstName[0].toUpperCase()}
+                        </div>
+                        <div>
+                          <div className="about-reviewer-name">
+                            {'\u2014'} {firstName}
+                          </div>
+                          {fb.orders?.receiver_city && (
+                            <div className="about-reviewer-location">
+                              Delivered to {fb.orders.receiver_city}{fb.orders.receiver_province ? `, ${fb.orders.receiver_province}` : ''}
+                            </div>
+                          )}
+                          {fb.created_at && (
+                            <div className="about-review-date">Reviewed {formatPhDate(fb.created_at)}</div>
+                          )}
+                        </div>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </motion.div>
+
+              {feedbackScrollState.overflowing && filteredFeedback.length > 1 && (
+                <button
+                  type="button"
+                  className="about-reviews-nav next"
+                  onClick={() => scrollFeedbackBy(1)}
+                  disabled={!feedbackScrollState.canScrollRight}
+                  aria-label="Next reviews"
+                >
+                  <ChevronRight size={20} />
+                </button>
+              )}
+            </div>
+          )}
+        </motion.section>
+
+        {/* ═══ 8b. FAQ ═══ */}
+        <motion.section
+          id="faq"
+          className="about-section"
+          initial={{ opacity: 0, y: 30 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: "-100px" }}
+          transition={{ duration: 0.6 }}
+        >
+          <div className="about-section-header">
+            <div className="about-section-label">FAQ</div>
+            <h2 className="about-section-title">Frequently Asked Questions</h2>
+          </div>
+
+          <div className="about-faq-wrap">
+            <FAQAccordion items={FAQ_ITEMS} />
+          </div>
+
+          <div className="about-trip-section-actions">
+            <Link to="/faq" className="btn btn-outline">
+              View Full Help &amp; Guidelines
+            </Link>
+          </div>
+        </motion.section>
+
+        {/* ═══ 9. Contact Section ═══ */}
+        <motion.section 
+          id="contact"
+          className="about-section"
+          initial={{ opacity: 0, y: 30 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: "-100px" }}
+          transition={{ duration: 0.6 }}
+        >
+          <div className="about-contact-card">
+            <div className="about-contact-grid">
+              
+              {/* Left: Contact Info */}
+              <div className="about-contact-info">
+                <h2 className="about-contact-heading">Get in Touch.</h2>
+                <p className="about-contact-subtext">
+                  Questions about a shipment, or need a quote? Call, email, or send us a message below.
+                </p>
+
+                <div className="about-contact-blocks">
+                  {(info?.smart_phone || info?.globe_phone) && (
+                    <div className="about-contact-block">
+                      <div className="about-contact-icon-box"><Phone size={20} /></div>
+                      <div>
+                        <div className="about-contact-block-title">Call Us</div>
+                        <div className="about-contact-block-body">
+                          {info.smart_phone && (
+                            <div>Smart: <a href={`tel:${info.smart_phone}`} className="about-contact-link">{info.smart_phone}</a></div>
+                          )}
+                          {info.globe_phone && (
+                            <div>Globe: <a href={`tel:${info.globe_phone}`} className="about-contact-link">{info.globe_phone}</a></div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {info?.email && (
+                    <div className="about-contact-block">
+                      <div className="about-contact-icon-box"><Mail size={20} /></div>
+                      <div>
+                        <div className="about-contact-block-title">Email Us</div>
+                        <a href={`mailto:${info.email}`} className="about-contact-link">{info.email}</a>
+                      </div>
+                    </div>
+                  )}
+
+                  {(info?.manila_address || info?.bohol_address) && (
+                    <div className="about-contact-block">
+                      <div className="about-contact-icon-box"><MapPin size={20} /></div>
+                      <div>
+                        <div className="about-contact-block-title">Visit Our Hubs</div>
+                        <div className="about-contact-block-body about-contact-block-body-lg">
+                          {info.manila_address && (
+                            <a
+                              href={getGoogleMapsSearchUrl(info.manila_address)}
+                              className="about-contact-link"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              aria-label="Open Manila Hub in Google Maps"
+                            >
+                              <strong>Manila:</strong> {info.manila_address}
+                            </a>
+                          )}
+                          {info.bohol_address && (
+                            <a
+                              href={getGoogleMapsSearchUrl(info.bohol_address)}
+                              className="about-contact-link"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              aria-label="Open Bohol Hub in Google Maps"
+                            >
+                              <strong>Bohol:</strong> {info.bohol_address}
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Right: Form */}
+              <div className="about-contact-form">
+                <h3 className="about-contact-form-title">Send a Message</h3>
+                {/* noValidate, as every other form in the app is: the browser's
+                    native bubble would otherwise intercept the submit and this
+                    form's own inline errors would never render. */}
+                <form onSubmit={handleSubmit} noValidate className="about-contact-form-body">
+                  <div>
+                    <label htmlFor="contact-name" className="about-form-label">Full Name</label>
+                    <input 
+                      id="contact-name"
+                      className={`about-premium-input ${invalidClass('name', errors)}`}
+                      placeholder="Juan Dela Cruz"
+                      value={form.name}
+                      onChange={e => { setForm(p => ({ ...p, name: toTitleCase(e.target.value) })); clearError('name'); }}
+                      required
+                      {...fieldAttrs('name', errors)}
+                    />
+                    <FieldError name="name" errors={errors} />
+                  </div>
+                  <div>
+                    <label htmlFor="contact-phone" className="about-form-label">Mobile Number</label>
+                    <input
+                      id="contact-phone"
+                      type="text"
+                      inputMode="numeric"
+                      className={`about-premium-input ${invalidClass('phone', errors)}`}
+                      placeholder="09XX-XXX-XXXX"
+                      maxLength={100}
+                      value={form.phone}
+                      onChange={e => { handlePhoneInput(e); clearError('phone'); }}
+                      required
+                      {...fieldAttrs('phone', errors)}
+                    />
+                    <FieldError name="phone" errors={errors} />
+                  </div>
+                  <div>
+                    <label htmlFor="contact-email" className="about-form-label">Email Address</label>
+                    <input
+                      id="contact-email"
+                      type="email"
+                      className={`about-premium-input ${invalidClass('email', errors)}`}
+                      placeholder="you@example.com"
+                      maxLength={100}
+                      value={form.email}
+                      onChange={e => { setForm(p => ({ ...p, email: e.target.value })); clearError('email'); }}
+                      required
+                      {...fieldAttrs('email', errors)}
+                    />
+                    <FieldError name="email" errors={errors} />
+                  </div>
+                  <div>
+                    <label htmlFor="contact-message" className="about-form-label">Message</label>
+                    <textarea 
+                      id="contact-message"
+                      className={`about-premium-input about-form-textarea ${invalidClass('message', errors)}`}
+                      placeholder="How can we help you?"
+                      value={form.message}
+                      onChange={e => { setForm(p => ({ ...p, message: e.target.value })); clearError('message'); }}
+                      required
+                      {...fieldAttrs('message', errors)}
+                    />
+                    <FieldError name="message" errors={errors} />
+                  </div>
+                  <label className="about-contact-consent flex items-center gap-8" htmlFor="contact-wants-announcements">
+                    <input
+                      id="contact-wants-announcements"
+                      type="checkbox"
+                      checked={form.wantsAnnouncements}
+                      onChange={e => setForm(p => ({ ...p, wantsAnnouncements: e.target.checked }))}
+                    />
+                    I want to receive email updates regarding trip schedules, promos, and announcements.
+                  </label>
+                  <button
+                    type="submit"
+                    className="about-submit-btn"
+                    disabled={loading}
+                  >
+                    {loading ? <Loader size={20} className="animate-spin" /> : <><Send size={18} /> Send Message</>}
+                  </button>
+                </form>
+              </div>
+
+            </div>
+          </div>
+        </motion.section>
+
+      </div>
+
+      {/* ═══ Wave Divider ═══ */}
+      <div className="about-wave-divider">
+        <svg viewBox="0 0 1440 100" preserveAspectRatio="none" className="about-wave-svg">
+          <path d="M0,40 C320,100 440,0 720,50 C1000,100 1120,10 1440,60 L1440,100 L0,100 Z" />
+        </svg>
+      </div>
+      
+      {/* ═══ 10. Footer ═══ */}
+      <Footer
+        companyName={companyName}
+        info={info}
+        systemStatus={resolvedSystemStatus}
+        systemStatusLabel={systemStatusLabel}
+      />
+      <BusinessStructuredData info={info} />
+
+      {/* ═══ Lightbox ═══ */}
+      {lightboxIndex >= 0 && (
+        <Lightbox
+          images={lightboxImages}
+          currentIndex={lightboxIndex}
+          onClose={() => setLightboxIndex(-1)}
+          onNavigate={handleLightboxNavigate}
+        />
+      )}
+
+      {/* ═══ Full Review Modal ═══ */}
+      <ReviewModal review={expandedReview} onClose={() => setExpandedReview(null)} />
+
+      {/* ═══ Back to Top ═══ */}
+      <AnimatePresence>
+        {showBackToTop && (
+          <motion.button
+            initial={{ opacity: 0, scale: 0.8, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.8, y: 20 }}
+            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+            className="about-back-to-top"
+            aria-label="Back to top"
+          >
+            <ArrowUp size={24} />
+          </motion.button>
+        )}
+      </AnimatePresence>
+    </div>
+    </MotionConfig>
+  );
+};
+
+export default AboutPage;

@@ -1,0 +1,610 @@
+/* --- MODAL ------------------------------------------------------------- */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-modal);
+  animation: fadeIn 0.2s ease;
+  padding-top: max(16px, env(safe-area-inset-top, 0px));
+  padding-right: 16px;
+  padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  padding-left: 16px;
+}
+.modal {
+  background: var(--surface);
+  border-radius: var(--radius-xl);
+  width: 100%;
+  max-width: min(100%, 560px);
+  max-height: calc(100dvh - 32px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: var(--shadow-2xl);
+  animation: scaleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.modal-header,
+.modal-footer {
+  flex-shrink: 0;
+}
+.modal-header {
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border-light);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.modal-header h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: var(--text-18);
+}
+.modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 24px;
+}
+.modal > form {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+.modal-footer {
+  padding: 16px 24px;
+  border-top: 1px solid var(--border-light);
+  display: flex; gap: 12px; justify-content: flex-end;
+}
+
+/* Opt-in wider size for modals whose content genuinely needs more room
+   (e.g. a two-column form + preview) — the base .modal's 560px cap stays
+   the default for every other modal; only one that adds this class widens.
+   720-800px, comfortably clear of the 900px "narrow-screen modal hardening"
+   band in tables-mobile.css so desktop widths (1024px+) get the full width. */
+/* `width` here (not `max-width`) is deliberate: FocusTrap (the modal's
+   immediate parent) renders a bare, unstyled <div> with no width of its
+   own, so inside .modal-overlay's flex row that wrapper shrink-wraps to
+   its content's own max-content size — and a percentage `width: 100%` on
+   .modal is resolved against that same indefinite box, so it collapses to
+   .modal's *content* max-content width instead of actually filling the
+   available viewport space (reproduced: a bare `max-width: 760px` here
+   still rendered ~324px wide at 1440px). `100vw`-based sizing is an
+   absolute length, not a percentage of that ambiguous parent, so it breaks
+   the circular dependency without touching FocusTrap or the shared .modal
+   rule every other modal in the app also uses. */
+.modal.modal-lg {
+  width: min(calc(100vw - 32px), 760px);
+  max-width: min(calc(100vw - 32px), 760px);
+}
+
+/* Feature-Shipment modal body: fields on the left, public-card preview on
+   the right once there's room; single column below that. */
+.fs-modal-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 20px;
+}
+@media (min-width: 640px) {
+  .fs-modal-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(240px, 300px);
+    align-items: start;
+  }
+}
+
+/* Footer: Remove from Website (when present) stays visually separate from
+   the Cancel/Save pair rather than sharing the same button group. */
+.fs-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.fs-modal-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+/* Footer-button sizing overrides (flex/min-width for .fs-modal-footer-actions
+   .btn) live in viewport-hardening.css, not here — see the note there for
+   why: this file's `components` layer loses to later layers regardless of
+   selector specificity. */
+
+.pickup-summary-card {
+  min-width: 0;
+  gap: 12px;
+}
+
+.pickup-summary-card > * {
+  min-width: 0;
+}
+
+.pickup-segment-row {
+  width: 100%;
+}
+
+.pickup-photo-remove-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--error-fill);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  cursor: pointer;
+}
+
+/* Confirm Modal */
+.confirm-modal {
+  background: var(--surface);
+  border-radius: var(--radius-xl);
+  width: 100%;
+  max-width: min(100%, 560px);
+  padding: 32px;
+  box-shadow: var(--shadow-2xl);
+  animation: scaleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  text-align: center;
+}
+.confirm-modal-icon {
+  width: 56px; height: 56px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 auto 16px;
+}
+.confirm-modal-icon.danger { background: var(--error-bg); color: var(--error-text-strong); }
+.confirm-modal-icon.warning { background: var(--warning-bg); color: var(--warning-text); }
+.confirm-modal-icon.info { background: var(--info-bg); color: var(--info-text); }
+.confirm-modal-icon.success { background: var(--success-bg); color: var(--success-text); }
+.confirm-modal-icon.secondary { background: rgba(var(--accent-rgb), 0.12); color: var(--accent); }
+.confirm-modal-icon.primary { background: var(--primary-bg); color: var(--primary-text); }
+
+.confirm-modal h3 {
+  color: var(--text); font-size: var(--text-18); font-weight: 700; margin-bottom: 8px;
+}
+.confirm-modal p {
+  color: var(--text-secondary); font-size: var(--text-16);
+  line-height: 1.5; margin-bottom: 24px;
+}
+.confirm-modal-actions {
+  display: flex; gap: 12px; justify-content: center;
+}
+.confirm-modal-actions .btn {
+  min-width: min(140px, 100%);
+}
+
+
+/* --- PAYMENT RESULT MODAL — Reference: shutterstock 2801168859 (tinted card, solid icon, inner transaction card, pill buttons) --- */
+
+.payment-result-modal {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  width: 100%;
+  max-width: min(100%, 400px);
+  padding: 28px 24px 24px;
+  box-shadow: var(--shadow-2xl);
+  animation: scaleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  text-align: center;
+  overflow: hidden;
+}
+.payment-result-modal.variant-success {
+  background: var(--success-bg);
+  border-color: color-mix(in srgb, var(--success) 16%, var(--border));
+}
+.payment-result-modal.variant-error {
+  background: var(--error-bg);
+  border-color: color-mix(in srgb, var(--error) 16%, var(--border));
+}
+.payment-result-modal.variant-processing {
+  background: var(--info-bg);
+  border-color: color-mix(in srgb, var(--info) 16%, var(--border));
+}
+[data-theme="dark"] .payment-result-modal.variant-success {
+  background: color-mix(in srgb, var(--success-bg) 92%, var(--surface));
+}
+[data-theme="dark"] .payment-result-modal.variant-error {
+  background: color-mix(in srgb, var(--error-bg) 92%, var(--surface));
+}
+.pr-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.pr-close:hover { background: rgba(15, 23, 42, 0.06); color: var(--text-secondary); }
+.pr-close:focus-visible { outline: 2px solid var(--primary-light); outline-offset: 2px; }
+[data-theme="dark"] .pr-close:hover { background: rgba(255,255,255,0.08); color: var(--text); }
+
+.pr-icon-wrap {
+  width: 64px; height: 64px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  margin: 8px auto 16px;
+  position: relative;
+  flex-shrink: 0;
+}
+.pr-icon-wrap.success { background: var(--success); color: white; box-shadow: 0 4px 16px color-mix(in srgb, var(--success) 28%, transparent); }
+.pr-icon-wrap.error   { background: var(--error); color: white; box-shadow: 0 4px 16px color-mix(in srgb, var(--error) 28%, transparent); }
+.pr-icon-wrap.processing { background: var(--info-bg); color: var(--info-text); border: 1px solid color-mix(in srgb, var(--info) 18%, transparent); }
+.pr-icon-svg { width: 36px; height: 36px; position: relative; z-index: 1; }
+.pr-icon-check {
+  stroke-dasharray: 48; stroke-dashoffset: 48;
+  animation: prCheckDraw 0.45s ease-out 0.35s forwards;
+}
+.pr-icon-ring {
+  stroke-dasharray: 151; stroke-dashoffset: 151;
+  animation: prRingDraw 0.5s ease-out 0.15s forwards;
+  opacity: 0.25;
+}
+@keyframes prCheckDraw { to { stroke-dashoffset: 0; } }
+@keyframes prRingDraw  { to { stroke-dashoffset: 0; } }
+.pr-icon-cross {
+  stroke-dasharray: 22.6; stroke-dashoffset: 22.6;
+  animation: prCrossDraw 0.35s ease-out 0.25s forwards;
+}
+@keyframes prCrossDraw { to { stroke-dashoffset: 0; } }
+.pr-icon-wrap.success::before {
+  content: ''; position: absolute; inset: -4px;
+  border-radius: 50%; border: 2px solid var(--success);
+  opacity: 0; animation: prRingPulse 1.8s ease-out 0.6s forwards;
+  z-index: 0;
+}
+@keyframes prRingPulse {
+  0%   { transform: scale(1);    opacity: 0.45; }
+  100% { transform: scale(1.35); opacity: 0; }
+}
+.pr-confetti {
+  position: absolute; inset: -18px; border-radius: 50%; pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(circle 3px, var(--success) 99%, transparent 100%) 10% 5%,
+    radial-gradient(circle 2.5px, var(--primary) 99%, transparent 100%) 85% 12%,
+    radial-gradient(circle 2px, var(--accent) 99%, transparent 100%) 92% 70%,
+    radial-gradient(circle 3px, var(--success) 99%, transparent 100%) 15% 88%,
+    radial-gradient(circle 2px, var(--primary) 99%, transparent 100%) 5% 55%,
+    radial-gradient(circle 2.5px, var(--accent) 99%, transparent 100%) 80% 90%;
+  background-repeat: no-repeat;
+  opacity: 0; transform: scale(0.5);
+  animation: prConfetti 0.7s ease-out 0.5s forwards;
+}
+@keyframes prConfetti {
+  0%   { opacity: 0;   transform: scale(0.5); }
+  40%  { opacity: 0.9; transform: scale(1.1); }
+  100% { opacity: 0;   transform: scale(1.4); }
+}
+.pr-icon-spinner { display: flex; align-items: center; justify-content: center; }
+.pr-title { color: var(--text); font-size: var(--text-20); font-weight: 700; margin-bottom: 6px; letter-spacing: -0.015em; line-height: 1.25; }
+.pr-subtitle {
+  color: var(--text-secondary); font-size: var(--text-14);
+  line-height: 1.5; margin: 0 auto 16px; max-width: 280px;
+}
+.pr-message { display: none; }
+.pr-transaction-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin: 16px 0 0;
+  text-align: left;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+.pr-transaction-header {
+  font-size: var(--text-12); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-tertiary); margin-bottom: 10px;
+}
+.pr-transaction-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 9px 0;
+}
+.pr-transaction-row + .pr-transaction-row { border-top: 1px solid var(--border-light); }
+.pr-transaction-label { color: var(--text-tertiary); font-size: var(--text-12); font-weight: 600; }
+.pr-transaction-value { color: var(--text); font-size: var(--text-13); font-weight: 700; text-align: right; overflow-wrap: anywhere; }
+.pr-transaction-value.pr-transaction-date { font-weight: 600; color: var(--text-secondary); font-size: var(--text-12); }
+.pr-transaction-id { font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+.pr-body { margin-bottom: 0; }
+.pr-amount { display: none; }
+.pr-tracking { display: none; }
+.pr-method-badge { display: none; }
+.pr-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 20px; }
+.pr-actions .btn { min-height: 44px; border-radius: 999px; font-weight: 700; font-size: var(--text-14); letter-spacing: 0.01em; }
+.pr-btn-success {
+  background: var(--success-fill);
+  color: white;
+  border: 1px solid var(--success-fill);
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--success) 24%, transparent);
+}
+.pr-btn-success:hover { background: color-mix(in srgb, var(--success-fill) 92%, black); border-color: color-mix(in srgb, var(--success-fill) 92%, black); }
+.pr-btn-danger {
+  background: var(--error-fill);
+  color: white;
+  border: 1px solid var(--error-fill);
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--error) 20%, transparent);
+}
+.pr-btn-danger:hover { background: color-mix(in srgb, var(--error-fill) 92%, black); border-color: color-mix(in srgb, var(--error-fill) 92%, black); }
+.pr-btn-primary {
+  background: var(--primary-fill);
+  color: white;
+  border: 1px solid var(--primary-fill);
+  border-radius: 999px;
+}
+.pr-btn-outline { border-color: var(--border); background: var(--surface); color: var(--text); }
+.pr-btn-outline:hover { background: var(--bg-secondary); border-color: var(--border-hover); }
+
+@media (prefers-reduced-motion: reduce) {
+  .pr-icon-check, .pr-icon-ring, .pr-icon-cross { animation: none; stroke-dashoffset: 0; }
+  .pr-confetti { display: none; }
+  .pr-icon-wrap.success::before { animation: none; }
+  .payment-result-modal { animation-duration: 0.01s; }
+}
+
+
+/* --- TOAST ------------------------------------------------------------- */
+
+
+.toast-container {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+  max-width: 350px;
+  width: calc(100vw - 48px);
+}
+
+.toast {
+  padding: 10px 14px;
+  border-radius: var(--radius-md); /* clean compact 12px border radius */
+  font-size: var(--text-13);
+  /* Premium drop shadow with tiny hint of ambient color and high-fidelity double border look using shadows */
+  box-shadow: 
+    0 8px 24px -4px rgba(15, 23, 42, 0.08), 
+    0 4px 12px -2px rgba(15, 23, 42, 0.04),
+    0 0 0 1px rgba(15, 23, 42, 0.05);
+  animation: toastSlideIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  pointer-events: all;
+  position: relative;
+  overflow: hidden;
+  /* Glassmorphism blur */
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+/* Very subtle hover highlight, no cheap animations or transitions */
+.toast:hover {
+  box-shadow: 
+    0 12px 28px -4px rgba(15, 23, 42, 0.12), 
+    0 4px 12px -2px rgba(15, 23, 42, 0.04),
+    0 0 0 1px rgba(15, 23, 42, 0.08);
+}
+
+/* -- Toast Semantic Variants (Ultra Clean Glass Theme) -- */
+.toast-success {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(240, 253, 250, 0.98));
+  border: 1px solid rgba(16, 185, 129, 0.18);
+  color: var(--text);
+}
+.toast-success .toast-icon-wrap {
+  background: rgba(16, 185, 129, 0.08);
+  color: var(--success-text);
+}
+.toast-success .toast-type-label {
+  color: var(--success-text);
+}
+
+.toast-error {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(254, 242, 242, 0.98));
+  border: 1px solid rgba(239, 68, 68, 0.18);
+  color: var(--text);
+}
+.toast-error .toast-icon-wrap {
+  background: rgba(239, 68, 68, 0.08);
+  color: var(--error);
+}
+.toast-error .toast-type-label {
+  color: var(--error-dark);
+}
+
+.toast-warning {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(255, 251, 235, 0.98));
+  border: 1px solid rgba(245, 158, 11, 0.18);
+  color: var(--text);
+}
+.toast-warning .toast-icon-wrap {
+  background: rgba(245, 158, 11, 0.08);
+  color: var(--warning-text);
+}
+.toast-warning .toast-type-label {
+  color: var(--warning-text);
+}
+
+.toast-info {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(239, 246, 255, 0.98));
+  border: 1px solid rgba(59, 130, 246, 0.18);
+  color: var(--text);
+}
+.toast-info .toast-icon-wrap {
+  background: rgba(59, 130, 246, 0.08);
+  color: var(--info);
+}
+.toast-info .toast-type-label {
+  color: var(--info-dark);
+}
+
+/* -- Toast Elements -- */
+.toast-icon-wrap {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.toast-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.toast-type-label {
+  font-size: var(--text-12);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  line-height: 1.2;
+}
+
+.toast-message {
+  font-size: var(--text-13);
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--text-secondary);
+}
+
+.toast-close {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-tertiary); /* #94a3b8 measured 2.56:1 on white — below the 3:1 UI minimum */
+  width: 24px;
+  height: 24px;
+  position: relative;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.toast-close::before {
+  content: '';
+  position: absolute;
+  top: -10px;
+  left: -10px;
+  right: -10px;
+  bottom: -10px;
+}
+.toast-close:hover {
+  background: rgba(15, 23, 42, 0.06);
+  color: var(--text-secondary);
+}
+.toast-close:focus-visible {
+  outline: 2px solid var(--primary-light);
+  outline-offset: 2px;
+}
+
+/* -- Toast Dark Mode Overrides -- */
+[data-theme="dark"] .toast-success {
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(6, 78, 59, 0.25));
+  border-color: rgba(16, 185, 129, 0.25);
+}
+[data-theme="dark"] .toast-error {
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(127, 29, 29, 0.25));
+  border-color: rgba(239, 68, 68, 0.25);
+}
+[data-theme="dark"] .toast-warning {
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(120, 53, 15, 0.25));
+  border-color: rgba(245, 158, 11, 0.25);
+}
+[data-theme="dark"] .toast-info {
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(30, 64, 175, 0.25));
+  border-color: rgba(59, 130, 246, 0.25);
+}
+[data-theme="dark"] .toast-message {
+  color: var(--text-secondary);
+}
+[data-theme="dark"] .toast-close {
+  color: var(--text-tertiary);
+}
+[data-theme="dark"] .toast-close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+
+/* -- Mobile Responsive Override (Phones) -- */
+@media (max-width: 480px) {
+  .toast-container {
+    top: 16px;
+    right: 16px;
+    left: 16px;
+    width: auto;
+    max-width: none;
+    gap: 8px;
+  }
+  
+  .toast {
+    padding: 8px 12px;
+    border-radius: var(--radius-sm); /* slightly smaller border radius on small screen */
+    gap: 8px;
+  }
+
+  .toast-icon-wrap {
+    width: 24px;
+    height: 24px;
+  }
+
+  .toast-icon-wrap svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .toast-message {
+    font-size: var(--text-12);
+    line-height: 1.3;
+  }
+
+  .toast-type-label {
+    font-size: var(--text-12);
+  }
+
+  .toast-close {
+    width: 20px;
+    height: 20px;
+  }
+}
+
+@keyframes toastSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-12px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+

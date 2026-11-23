@@ -1,0 +1,785 @@
+import { useState, useEffect, useRef } from 'react';
+import { getContactInquiries, updateContactInquiry, assignInquiry, unassignInquiry, adminSetEmailSubscription } from '../../lib/database';
+import { logChat, logActivity } from '../../lib/activityLog';
+import { useAuth } from '../../contexts/AuthContext';
+import { supabase } from '../../lib/supabase';
+import { CenteredSpinner } from '../../components/ui/Loader';
+import EmptyState from '../../components/ui/EmptyState';
+import ResponsiveFilterControls from '../../components/ui/ResponsiveFilterControls';
+import ConfirmModal from '../../components/ui/ConfirmModal';
+import {
+  Mail, Phone, Clock, CheckCircle, Eye, UserCheck,
+  Loader, MessageSquare, AlertCircle, X, Megaphone, RefreshCw
+} from 'lucide-react';
+import usePageTitle from '../../hooks/usePageTitle';
+import FocusTrap from '../../components/ui/FocusTrap';
+import useScrollLock from '../../hooks/useScrollLock';
+import { useToast } from '../../hooks/useToast';
+
+const STATUS_CONFIG = {
+  new: { label: 'New', className: 'badge-warning' },
+  read: { label: 'Read', className: 'badge-info' },
+  resolved: { label: 'Resolved', className: 'badge-success' },
+};
+
+/**
+ * Read an inquiry's contact channels: contact_phone / contact_email are the
+ * only stored channels. The legacy combined `phone` column is retired
+ * (20260926100000) and dropped (20260926110000); every existing row already
+ * has at least one normalized channel (contact_inquiries_has_contact_channel).
+ */
+const readContact = (inquiry) => ({
+  phone: inquiry?.contact_phone || '',
+  email: inquiry?.contact_email || '',
+});
+
+/**
+ * Compact list-view indicator for the authoritative "Email Updates"
+ * preference (src/lib/database.js getContactInquiries() annotates each row
+ * with `email_subscription`). Renders nothing when no preference has ever
+ * been recorded for the address — that is a distinct state from an
+ * explicit "Off", not worth a badge of its own in the tight list view.
+ */
+const EmailSubscriptionBadge = ({ subscription }) => {
+  if (!subscription) return null;
+  return (
+    <span
+      className={`badge text-xs ${subscription.subscribed ? 'badge-success' : 'badge-default'}`}
+      title={subscription.subscribed ? 'Email Updates: Enabled' : 'Email Updates: Disabled'}
+    >
+      {subscription.subscribed ? 'Email: On' : 'Email: Off'}
+    </span>
+  );
+};
+
+const getContactHref = (value) => {
+  const v = String(value || '').trim();
+  if (!v) return null;
+  return v.includes('@') ? `mailto:${v}` : `tel:${v.replace(/[^\d+]/g, '')}`;
+};
+
+const ContactLink = ({ inquiry, className }) => {
+  const { phone, email } = readContact(inquiry);
+  const phoneHref = getContactHref(phone);
+  const emailHref = getContactHref(email);
+  if (!phoneHref && !emailHref) return <span className={className}>—</span>;
+  return (
+    <span className={className}>
+      {phoneHref && (
+        <a
+          href={phoneHref}
+          className="contact-link"
+          onClick={e => e.stopPropagation()}
+          title={`Call ${phone}`}
+        >
+          {phone}
+        </a>
+      )}
+      {phoneHref && emailHref && <span className="contact-link-sep"> · </span>}
+      {emailHref && (
+        <a
+          href={emailHref}
+          className="contact-link"
+          onClick={e => e.stopPropagation()}
+          title={`Email ${email}`}
+        >
+          {email}
+        </a>
+      )}
+    </span>
+  );
+};
+
+const ContactInquiriesPage = () => {
+  usePageTitle('Contact Inquiries');
+  const { user, userProfile } = useAuth();
+  const toast = useToast();
+  const [inquiries, setInquiries] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [updating, setUpdating] = useState(null);
+  const [selectedInquiry, setSelectedInquiry] = useState(null);
+  const [filter, setFilter] = useState('all');
+  const [emailToggleBusy, setEmailToggleBusy] = useState(false);
+  const [showEnableEmailConfirm, setShowEnableEmailConfirm] = useState(false);
+
+  useEffect(() => { loadInquiries(); }, []);
+
+  // This detail modal is built inline rather than from components/ui, so it was
+  // missed when scroll locking and Escape were added to the shared modals.
+  // Both hooks sit above the early return below so hook order stays stable.
+  useScrollLock(!!selectedInquiry);
+
+  useEffect(() => {
+    if (!selectedInquiry) return undefined;
+    const handleEscape = (e) => {
+      if (e.key === 'Escape') setSelectedInquiry(null);
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [selectedInquiry]);
+
+  // Realtime: a guest submitting the public form, or another admin claiming
+  // or resolving one, should show up here without a manual Refresh. Mirrors
+  // the badge subscription in Sidebar.jsx (same table, same debounce), except
+  // this one re-fetches the actual list instead of a count.
+  //
+  // Refetch-and-replace rather than patching the event payload in place: an
+  // UPDATE payload carries only assigned_admin_id (a uuid), not the joined
+  // assigned_admin.name that getContactInquiries() selects, so a patched row
+  // would show "Assigned" instead of the admin's name until the next full
+  // load. `silent` skips the loading-spinner flip so the table underneath
+  // an admin's cursor is never yanked away for a background refresh.
+  const reloadTimeoutRef = useRef(null);
+  useEffect(() => {
+    const debouncedReload = () => {
+      clearTimeout(reloadTimeoutRef.current);
+      reloadTimeoutRef.current = setTimeout(() => loadInquiries({ silent: true }), 600);
+    };
+
+    const channel = supabase
+      .channel('admin_contact_inquiries_list')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'contact_inquiries' }, debouncedReload)
+      .subscribe();
+
+    return () => {
+      clearTimeout(reloadTimeoutRef.current);
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const loadInquiries = async ({ silent = false } = {}) => {
+    if (!silent) setError(null);
+    if (!silent) setLoading(true);
+    try {
+      const data = await getContactInquiries();
+      setInquiries(data);
+      // Keep an open detail modal in sync too -- e.g. another admin claims or
+      // resolves the inquiry the current admin is looking at right now.
+      setSelectedInquiry(prev => {
+        if (!prev) return prev;
+        const fresh = data.find(i => i.id === prev.id);
+        return fresh || prev;
+      });
+    } catch (e) {
+      // A failed background refresh must not blank out good data the admin
+      // is reading -- surface the error only for an explicit load.
+      if (!silent) setError(e.message || 'Failed to load contact inquiries.');
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  };
+
+  // Resolving is claim-gated: guard_contact_inquiry_resolve_ownership (DB
+  // trigger) refuses to move status to 'resolved' unless assigned_admin_id
+  // already equals the caller. That refusal is the actual boundary -- this
+  // check just turns it into a clear message instead of a raw DB error,
+  // same as the ownership check in handleAssign below. 'read' (from
+  // handleView, on any inquiry) isn't gated -- only 'resolved' is.
+  const handleStatusChange = async (id, newStatus) => {
+    const inq = inquiries.find(i => i.id === id);
+    if (newStatus === 'resolved' && inq?.assigned_admin_id !== user?.id) {
+      toast.error(
+        inq?.assigned_admin_id
+          ? `This inquiry is claimed by ${inq.assigned_admin?.name || 'another admin'} — only they can resolve it.`
+          : 'Claim this inquiry before marking it resolved.'
+      );
+      return;
+    }
+
+    setUpdating(id);
+    try {
+      await updateContactInquiry(id, { status: newStatus });
+      logChat(`Inquiry Marked ${newStatus}`, id, inq?.name || 'Unknown', { details: `Inquiry status changed to ${newStatus}` });
+      setInquiries(prev => prev.map(i => i.id === id ? { ...i, status: newStatus } : i));
+      if (selectedInquiry?.id === id) {
+        setSelectedInquiry(prev => ({ ...prev, status: newStatus }));
+      }
+    } catch (e) {
+      toast.error(e.message || 'Failed to update this inquiry.');
+    } finally {
+      setUpdating(null);
+    }
+  };
+
+  // Ownership. Without it nobody is answerable for an inquiry, and with more
+  // than one admin two people can answer the same person.
+  //
+  // The button that calls this is disabled once assigned_admin_id names
+  // someone else (see the render below), so this guard only ever fires on a
+  // stale render — a page that hasn't re-synced yet still can't steal or
+  // release someone else's claim, because assignInquiry/unassignInquiry
+  // themselves refuse it server-side. That refusal is the actual boundary;
+  // this check just turns it into a clear message instead of a raw error.
+  const handleAssign = async (inquiry) => {
+    const mine = inquiry.assigned_admin_id === user?.id;
+    if (inquiry.assigned_admin_id && !mine) {
+      toast.error(`This inquiry is already claimed by ${inquiry.assigned_admin?.name || 'another admin'}.`);
+      return;
+    }
+
+    setUpdating(inquiry.id);
+    try {
+      if (mine) {
+        await unassignInquiry(inquiry.id);
+      } else {
+        await assignInquiry(inquiry.id);
+      }
+      const patch = mine
+        ? { assigned_admin_id: null, assigned_admin: null }
+        : { assigned_admin_id: user?.id, assigned_admin: { name: userProfile?.name || 'You' } };
+      setInquiries(prev => prev.map(i => (i.id === inquiry.id ? { ...i, ...patch } : i)));
+      if (selectedInquiry?.id === inquiry.id) setSelectedInquiry(prev => ({ ...prev, ...patch }));
+      logChat(mine ? 'Inquiry Released' : 'Inquiry Claimed', inquiry.id, inquiry.name || 'Unknown', {
+        details: mine ? 'Returned to the unclaimed pool.' : 'Claimed by admin.',
+      });
+    } catch (e) {
+      // Someone else's claim landed first, or the release target changed —
+      // either way the local copy is now wrong. Resync from the server
+      // rather than leaving a claim on screen that the write never made.
+      toast.error(e.message || 'Failed to update this inquiry.');
+      loadInquiries();
+    } finally {
+      setUpdating(null);
+    }
+  };
+
+  const handleView = (inquiry) => {
+    setSelectedInquiry(inquiry);
+    if (inquiry.status === 'new') {
+      handleStatusChange(inquiry.id, 'read');
+    }
+  };
+
+  // Applies a successful email-subscription change to both the list and an
+  // open detail modal, without a full reload — same pattern as
+  // handleStatusChange/handleAssign above.
+  const applyEmailSubscriptionPatch = (email, result) => {
+    const patch = { email_subscription: { subscribed: result.subscribed, updatedAt: result.updated_at } };
+    setInquiries(prev => prev.map(i => (
+      (i.contact_email || '').trim().toLowerCase() === email ? { ...i, ...patch } : i
+    )));
+    setSelectedInquiry(prev => (
+      prev && (prev.contact_email || '').trim().toLowerCase() === email ? { ...prev, ...patch } : prev
+    ));
+  };
+
+  // Disabling needs no confirmation (per spec) — only enabling does, since
+  // that's the action that claims the customer explicitly agreed.
+  const handleEmailUpdatesToggle = async (inquiry, nextEnabled) => {
+    const email = (inquiry.contact_email || '').trim().toLowerCase();
+    if (!email || emailToggleBusy) return;
+
+    if (nextEnabled) {
+      setShowEnableEmailConfirm(true);
+      return;
+    }
+
+    setEmailToggleBusy(true);
+    try {
+      const result = await adminSetEmailSubscription(email, false);
+      applyEmailSubscriptionPatch(email, result);
+      logActivity({
+        module: 'System',
+        action: 'Disabled Email Updates',
+        recordType: 'email_subscription',
+        recordRef: email,
+        details: `Admin disabled trip/announcement email updates for ${email} (inquiry from ${inquiry.name || 'Unknown'}).`,
+      });
+      toast.success('Email updates disabled for this customer.');
+    } catch (e) {
+      toast.error(e.message || 'Could not update the email preference. Please try again.');
+    } finally {
+      setEmailToggleBusy(false);
+    }
+  };
+
+  const handleConfirmEnableEmailUpdates = async () => {
+    if (!selectedInquiry) return;
+    const email = (selectedInquiry.contact_email || '').trim().toLowerCase();
+    if (!email) return;
+
+    setEmailToggleBusy(true);
+    try {
+      const result = await adminSetEmailSubscription(email, true);
+      applyEmailSubscriptionPatch(email, result);
+      logActivity({
+        module: 'System',
+        action: 'Enabled Email Updates',
+        recordType: 'email_subscription',
+        recordRef: email,
+        details: `Admin recorded the customer's agreement to receive trip schedule, promo, and announcement emails for ${email} (inquiry from ${selectedInquiry.name || 'Unknown'}).`,
+      });
+      toast.success('Email updates enabled for this customer.');
+      setShowEnableEmailConfirm(false);
+    } catch (e) {
+      // Leave the confirmation open so the admin can retry without
+      // reopening it — do not show a success state before the save succeeds.
+      toast.error(e.message || 'Could not enable email updates. Please try again.');
+    } finally {
+      setEmailToggleBusy(false);
+    }
+  };
+
+  const filtered = filter === 'all'
+    ? inquiries
+    : inquiries.filter(i => i.status === filter);
+
+  const newCount = inquiries.filter(i => i.status === 'new').length;
+  const filterOptions = ['all', 'new', 'read', 'resolved'].map(f => ({
+    value: f,
+    label: f.charAt(0).toUpperCase() + f.slice(1),
+    count: f === 'all' ? inquiries.length : inquiries.filter(i => i.status === f).length,
+  }));
+  const selectedContact = selectedInquiry ? readContact(selectedInquiry) : null;
+
+  // Same rule the DB trigger enforces: resolving requires having claimed it
+  // first. Drives both the disabled state and the explanatory title on the
+  // Resolve buttons below.
+  const resolveGate = (inq) => {
+    if (inq.assigned_admin_id === user?.id) return { canResolve: true, title: 'Mark as Resolved' };
+    if (inq.assigned_admin_id) {
+      return { canResolve: false, title: `Claimed by ${inq.assigned_admin?.name || 'another admin'} — only they can resolve it` };
+    }
+    return { canResolve: false, title: 'Claim this inquiry before resolving' };
+  };
+
+  if (error && !loading && inquiries.length === 0) {
+    return (
+      <div className="page-transition">
+        <div className="card text-center" style={{ padding: 40, color: 'var(--error-text)' }}>
+          <AlertCircle size={32} className="mb-8" />
+          <h3>Error</h3>
+          <p>{error}</p>
+          <button type="button" className="btn btn-primary mt-md" onClick={() => loadInquiries()}>Retry</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="page-transition">
+      {/* Header */}
+      {/* Title and Refresh share one row at every width. A .btn here would be
+          stretched into a full-width band on phones by the admin header rules. */}
+      <div className="admin-page-header">
+        <div className="inquiry-header-row">
+          <div>
+            <h1 className="admin-page-title">
+              <Mail size={24} color="var(--primary)" aria-hidden="true" />
+              Contact Inquiries
+              {newCount > 0 && (
+                <span className="badge badge-warning text-xs">
+                  {newCount} new
+                </span>
+              )}
+            </h1>
+            <p className="admin-page-subtitle">Messages from the public contact form</p>
+          </div>
+          <button
+            type="button"
+            className="btn-icon btn-ghost inquiry-refresh"
+            onClick={() => loadInquiries()}
+            disabled={loading}
+            aria-label="Refresh inquiries"
+            title="Refresh"
+          >
+            <RefreshCw size={18} className={loading ? 'animate-spin' : undefined} aria-hidden="true" />
+          </button>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <ResponsiveFilterControls
+        options={filterOptions}
+        value={filter}
+        onChange={setFilter}
+        ariaLabel="Inquiry status filters"
+        className="mb-16"
+      />
+
+      {/* Table */}
+      {loading ? (
+        <CenteredSpinner />
+      ) : filtered.length === 0 ? (
+        <div className="card">
+          <EmptyState
+            icon={Mail}
+            title="No Inquiries"
+            description={filter !== 'all' ? `No ${filter} inquiries found.` : 'No contact inquiries have been submitted yet.'}
+          />
+        </div>
+      ) : (
+        <div className="card">
+          <div className="table-container inquiry-table">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">Name</th>
+                  <th scope="col">Contact</th>
+                  <th scope="col">Message</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Date</th>
+                  <th scope="col" style={{ width: 100 }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map(inq => {
+                  const cfg = STATUS_CONFIG[inq.status] || STATUS_CONFIG.new;
+                  return (
+                    <tr
+                      key={inq.id}
+                      className="clickable"
+                      style={{
+                        background: inq.status === 'new' ? 'var(--warning-bg)' : undefined,
+                      }}
+                      onClick={() => handleView(inq)}
+                    >
+                      <td data-label="Name">
+                        <div className="flex items-center gap-8">
+                          <div className="sidebar-user-avatar w-32 h-32 text-xs flex-shrink-0">
+                            {(inq.name || '?')[0].toUpperCase()}
+                          </div>
+                          <div className="flex flex-col">
+                            <span style={{ fontWeight: inq.status === 'new' ? 700 : 500 }}>
+                              {inq.name}
+                            </span>
+                            {inq.assigned_admin_id && (
+                              <span className="text-xs text-tertiary flex items-center gap-4">
+                                <UserCheck size={10} aria-hidden="true" />
+                                {inq.assigned_admin_id === user?.id ? 'You' : (inq.assigned_admin?.name || 'Assigned')}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      <td data-label="Contact" className="text-sm text-secondary">
+                        <div className="flex items-center gap-6 flex-wrap">
+                          <ContactLink inquiry={inq} className="text-secondary" />
+                          <EmailSubscriptionBadge subscription={inq.email_subscription} />
+                        </div>
+                      </td>
+                      <td data-label="Message">
+                        <div
+                          className="text-sm inquiry-message-preview"
+                          style={{ fontWeight: inq.status === 'new' ? 600 : 400 }}
+                        >
+                          {inq.message}
+                        </div>
+                      </td>
+                      <td data-label="Status">
+                        <span className={`badge ${cfg.className}`}>{cfg.label}</span>
+                      </td>
+                      <td data-label="Date" className="text-sm text-secondary">
+                        {new Date(inq.created_at).toLocaleDateString('en-PH', {
+                          month: 'short', day: 'numeric', year: 'numeric',
+                        })}
+                      </td>
+                      <td data-label="Actions">
+                        <div className="flex gap-4" onClick={e => e.stopPropagation()}>
+                          <button
+                            className="btn-icon btn-ghost"
+                            type="button"
+                            title="View"
+                            aria-label={`View inquiry from ${inq.name}`}
+                            onClick={() => handleView(inq)}
+                          >
+                            <Eye size={16} />
+                          </button>
+                          {inq.status !== 'resolved' && (() => {
+                            const gate = resolveGate(inq);
+                            return (
+                              <button
+                                className="btn-icon btn-ghost"
+                                type="button"
+                                title={gate.title}
+                                aria-label={`${gate.title} — inquiry from ${inq.name}`}
+                                disabled={updating === inq.id || !gate.canResolve}
+                                onClick={() => handleStatusChange(inq.id, 'resolved')}
+                              >
+                                {updating === inq.id
+                                  ? <Loader size={14} className="animate-spin" />
+                                  : <CheckCircle size={16} color="var(--success)" />}
+                              </button>
+                            );
+                          })()}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+          </table>
+        </div>
+
+          {/* Phones and tablets: a list built for the job instead of the
+              generic table-as-cards, which stacked six label rows per
+              inquiry and broke emails mid-word. Tapping the card opens the
+              same detail view as a table row. */}
+          <ul className="inquiry-list" aria-label="Contact inquiries">
+            {filtered.map(inq => {
+              const cfg = STATUS_CONFIG[inq.status] || STATUS_CONFIG.new;
+              const { phone, email } = readContact(inq);
+              const gate = resolveGate(inq);
+              return (
+                <li key={inq.id} className={`inquiry-card${inq.status === 'new' ? ' is-new' : ''}`}>
+                  <button type="button" className="inquiry-card-main" onClick={() => handleView(inq)}>
+                    <span className="sidebar-user-avatar inquiry-card-avatar" aria-hidden="true">
+                      {(inq.name || '?')[0].toUpperCase()}
+                    </span>
+                    <span className="inquiry-card-body">
+                      <span className="inquiry-card-top">
+                        <span className="inquiry-card-name">{inq.name}</span>
+                        <span className={`badge ${cfg.className}`}>{cfg.label}</span>
+                      </span>
+                      <span className="inquiry-card-meta">
+                        {new Date(inq.created_at).toLocaleDateString('en-PH', {
+                          month: 'short', day: 'numeric', year: 'numeric',
+                        })}
+                        {inq.assigned_admin_id && (
+                          <span className="inquiry-card-claim">
+                            <UserCheck size={12} aria-hidden="true" />
+                            {inq.assigned_admin_id === user?.id ? 'Claimed by you' : `With ${inq.assigned_admin?.name || 'another admin'}`}
+                          </span>
+                        )}
+                      </span>
+                      <span className="inquiry-card-message">{inq.message}</span>
+                    </span>
+                  </button>
+                  {(phone || email || inq.email_subscription || (inq.status !== 'resolved' && gate.canResolve)) && (
+                    <div className="inquiry-card-foot">
+                      <div className="inquiry-card-contact">
+                        {phone && (
+                          <a className="inquiry-card-link" href={getContactHref(phone)} title={`Call ${phone}`}>
+                            <Phone size={13} aria-hidden="true" />
+                            <span>{phone}</span>
+                          </a>
+                        )}
+                        {email && (
+                          <a className="inquiry-card-link" href={getContactHref(email)} title={`Email ${email}`}>
+                            <Mail size={13} aria-hidden="true" />
+                            <span className="inquiry-card-email">{email}</span>
+                          </a>
+                        )}
+                        <EmailSubscriptionBadge subscription={inq.email_subscription} />
+                      </div>
+                      {/* Resolving needs your own claim (resolveGate). Offer it
+                          only when it works: a greyed icon whose reason lives
+                          in a hover tooltip explains nothing on a phone. */}
+                      {inq.status !== 'resolved' && gate.canResolve && (
+                        <button
+                          type="button"
+                          className="btn btn-outline btn-sm inquiry-card-resolve"
+                          disabled={updating === inq.id}
+                          onClick={() => handleStatusChange(inq.id, 'resolved')}
+                          aria-label={`Mark inquiry from ${inq.name} as resolved`}
+                        >
+                          {updating === inq.id
+                            ? <Loader size={14} className="animate-spin" aria-hidden="true" />
+                            : <CheckCircle size={14} aria-hidden="true" />}
+                          Resolve
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+      </div>
+      )}
+
+      {/* Detail Modal */}
+      {selectedInquiry && (
+        <FocusTrap active={!!selectedInquiry}>
+          <div className="modal-overlay" onClick={() => setSelectedInquiry(null)}>
+            <div className="modal inquiry-modal" role="dialog" aria-modal="true" aria-labelledby="inquiry-modal-title" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
+              <div className="modal-header">
+                <h3 id="inquiry-modal-title" className="flex items-center gap-8">
+                <MessageSquare size={18} />
+                Inquiry Details
+              </h3>
+              <button type="button" className="btn-icon btn-ghost" onClick={() => setSelectedInquiry(null)} aria-label="Close inquiry details">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <div style={{
+                background: 'var(--bg-secondary)', borderRadius: 'var(--radius-sm)',
+              }} className="p-16 mb-16 inquiry-identity-row">
+                <div className="sidebar-user-avatar text-base flex-shrink-0" style={{ width: 36, height: 36 }}>
+                  {(selectedInquiry.name || '?')[0].toUpperCase()}
+                </div>
+                <div>
+                  <div className="fw-700 text-sm">{selectedInquiry.name}</div>
+                  {selectedContact.phone && (
+                    <div className="text-sm text-secondary flex items-center gap-4 mt-2">
+                      <Phone size={12} />
+                      <a
+                        href={getContactHref(selectedContact.phone)}
+                        className="text-secondary text-underline"
+                        title={`Call ${selectedContact.phone}`}
+                      >
+                        {selectedContact.phone}
+                      </a>
+                    </div>
+                  )}
+                  {selectedContact.email && (
+                    <div className="text-sm text-secondary flex items-center gap-4 mt-2">
+                      <Mail size={12} />
+                      <a
+                        href={getContactHref(selectedContact.email)}
+                        className="text-secondary text-underline"
+                        title={`Email ${selectedContact.email}`}
+                      >
+                        {selectedContact.email}
+                      </a>
+                    </div>
+                  )}
+                </div>
+                <div className="inquiry-identity-actions">
+                  <span className={`badge ${(STATUS_CONFIG[selectedInquiry.status] || STATUS_CONFIG.new).className}`}>
+                    {(STATUS_CONFIG[selectedInquiry.status] || STATUS_CONFIG.new).label}
+                  </span>
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${selectedInquiry.assigned_admin_id ? 'btn-outline' : 'btn-secondary'}`}
+                    onClick={() => handleAssign(selectedInquiry)}
+                    // Strictly disabled, not just relabelled, once someone else
+                    // holds it — a button reading "With [OtherAdmin]" that still
+                    // works on click is how a claim gets stolen with one tap.
+                    disabled={
+                      updating === selectedInquiry.id ||
+                      (selectedInquiry.assigned_admin_id && selectedInquiry.assigned_admin_id !== user?.id)
+                    }
+                    title={
+                      selectedInquiry.assigned_admin_id && selectedInquiry.assigned_admin_id !== user?.id
+                        ? `Already claimed by ${selectedInquiry.assigned_admin?.name || 'another admin'}`
+                        : undefined
+                    }
+                  >
+                    <UserCheck size={13} aria-hidden="true" />
+                    {selectedInquiry.assigned_admin_id
+                      ? (selectedInquiry.assigned_admin_id === user?.id ? 'Release' : `With ${selectedInquiry.assigned_admin?.name || 'admin'}`)
+                      : 'Claim'}
+                  </button>
+                </div>
+              </div>
+
+              {selectedContact.email && (
+                <div className="mb-16 p-16" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)' }}>
+                  <div className="flex items-center justify-between gap-8">
+                    <div className="flex items-center gap-8">
+                      <Megaphone size={16} color="var(--primary)" aria-hidden="true" />
+                      <div>
+                        <div className="text-sm fw-700">Email Updates</div>
+                        <div className="text-xs text-secondary">
+                          {selectedInquiry.email_subscription
+                            ? (selectedInquiry.email_subscription.subscribed ? 'Enabled' : 'Disabled')
+                            : 'Not set'}
+                          {selectedInquiry.email_subscription?.updatedAt && (
+                            <>
+                              {' · '}
+                              {selectedInquiry.email_subscription.subscribed ? 'Enabled on' : 'Last updated'}{' '}
+                              {new Date(selectedInquiry.email_subscription.updatedAt).toLocaleDateString('en-PH', {
+                                month: 'short', day: 'numeric', year: 'numeric',
+                              })}
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <label className={`toggle-switch${emailToggleBusy ? ' opacity-50' : ''}`}>
+                      <input
+                        type="checkbox"
+                        checked={!!selectedInquiry.email_subscription?.subscribed}
+                        disabled={emailToggleBusy}
+                        onChange={(e) => handleEmailUpdatesToggle(selectedInquiry, e.target.checked)}
+                        aria-label="Toggle Email Updates"
+                      />
+                      <span className="toggle-slider" />
+                    </label>
+                  </div>
+                  <p className="text-xs text-secondary mt-8">
+                    Send this customer emails when new trip schedules or public announcements are published.
+                  </p>
+                </div>
+              )}
+
+              {selectedInquiry.first_response_at && (
+                <div className="text-xs text-tertiary mb-16 flex items-center gap-4">
+                  <Clock size={12} aria-hidden="true" />
+                  First actioned {new Date(selectedInquiry.first_response_at).toLocaleString('en-PH', {
+                    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true,
+                  })}
+                  {' · '}
+                  {Math.round(
+                    (new Date(selectedInquiry.first_response_at) - new Date(selectedInquiry.created_at)) / 3600000
+                  )}h after it arrived
+                </div>
+              )}
+
+              <div className="mb-16">
+                <div className="text-xs text-tertiary font-bold mb-6 text-uppercase">
+                  Message
+                </div>
+                <div className="p-16" style={{
+                  background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
+                  fontSize: 'var(--text-14)', lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                }}>
+                  {selectedInquiry.message}
+                </div>
+              </div>
+
+              <div className="text-xs text-tertiary flex items-center gap-4">
+                <Clock size={12} />
+                Submitted {new Date(selectedInquiry.created_at).toLocaleString('en-PH', {
+                  month: 'long', day: 'numeric', year: 'numeric',
+                  hour: 'numeric', minute: '2-digit', hour12: true,
+                })}
+              </div>
+            </div>
+            <div className="modal-footer">
+              {selectedInquiry.status !== 'resolved' ? (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => { handleStatusChange(selectedInquiry.id, 'resolved'); }}
+                  disabled={updating === selectedInquiry.id || !resolveGate(selectedInquiry).canResolve}
+                  title={resolveGate(selectedInquiry).title}
+                >
+                  {updating === selectedInquiry.id
+                    ? <Loader size={16} className="animate-spin" />
+                    : <CheckCircle size={16} />}
+                  Mark as Resolved
+                </button>
+              ) : (
+                <span className="text-sm text-secondary flex items-center gap-6">
+                  <CheckCircle size={14} color="var(--success)" /> Resolved
+                </span>
+              )}
+              <button type="button" className="btn btn-outline" onClick={() => setSelectedInquiry(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+        </FocusTrap>
+      )}
+
+      <ConfirmModal
+        isOpen={showEnableEmailConfirm}
+        onClose={() => { if (!emailToggleBusy) setShowEnableEmailConfirm(false); }}
+        onConfirm={handleConfirmEnableEmailUpdates}
+        title="Enable email updates?"
+        message="The customer agreed to receive trip schedules, promos, and announcements."
+        confirmLabel="Confirm & Enable"
+        variant="success"
+        icon={Megaphone}
+        loading={emailToggleBusy}
+      />
+    </div>
+  );
+};
+
+export default ContactInquiriesPage;

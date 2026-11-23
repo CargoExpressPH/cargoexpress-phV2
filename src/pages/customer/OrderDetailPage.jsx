@@ -1,0 +1,1468 @@
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { getOrderById, updateOrderContactDetails, requestOrderCancellation, getPaymentTransactions, submitFeedback, checkIfFeedbackExists, getOrderStatusEvents, getLatestPaymentAttemptByOrder, getCancellationSettlementSummary } from '../../lib/database';
+import { getCachedOrder } from '../../lib/offlineScannerQueue';
+import { buildStatusTimestamps } from '../../utils/statusTimestamps';
+import { resolvePhotoUrls } from '../../lib/storage';
+import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../contexts/AuthContext';
+import { initiateGCashPayment, registerSource, pollPaymentStatus } from '../../lib/paymongo';
+import { clearPendingPayment, getPendingPayment, savePendingPayment } from '../../lib/pendingPayment';
+import { savePaymentReturnContext } from '../../lib/paymentReturnContext';
+import { isPaymentPollReconciled } from '../../utils/paymentReconciliation';
+import StatusBadge from '../../components/ui/StatusBadge';
+import CopyButton from '../../components/ui/CopyButton';
+import ShareButton from '../../components/ui/ShareButton';
+import TrackingTimeline from '../../components/ui/TrackingTimeline';
+import ConfirmModal from '../../components/ui/ConfirmModal';
+import PaymentResultModal from '../../components/ui/PaymentResultModal';
+import CancelBookingModal from '../../components/ui/CancelBookingModal';
+import EditContactDetailsModal from '../../components/ui/EditContactDetailsModal';
+import FocusTrap from '../../components/ui/FocusTrap';
+import ImageLightbox from '../../components/ui/ImageLightbox';
+import ResolvedPhotoLink from '../../components/ui/ResolvedPhotoLink';
+import { CenteredSpinner } from '../../components/ui/Loader';
+import AmountInput from '../../components/ui/AmountInput';
+import CancellationSettlementSummary from '../../components/ui/CancellationSettlementSummary';
+import { ArrowLeft, MapPin, User, Phone, Package, CreditCard, Truck, Camera, Image, XCircle, Loader, AlertTriangle, Check, Info } from 'lucide-react';
+import { useToast } from '../../hooks/useToast';
+import usePageTitle from '../../hooks/usePageTitle';
+import { formatPhDate, formatPhDateTime, formatPhTime } from '../../utils/datetime';
+import { formatMoney, sanitizeAmount, parseAmount } from '../../utils/currencyInput';
+import { outstandingBalance, finalShippingFee, getSettlementState, isOrderPriced, SETTLEMENT_STATE, ORDER_STATUS, canCancelOrder, hasPendingCancellation, timelineStatus, canEditContactDetails } from '../../constants/status';
+import { getOrderPaymentStatusDisplay, formatPaymentType, formatRecordedBy, formatRefundRecordedBy, getPaymentActivityStatusDisplay, formatPaymentMethod as fmtMethod, getCustomerFriendlyNotes, getCustomerVisibleRef, getRefundAmountDisplay } from '../../utils/paymentDisplay';
+import useOrderPaymentRealtime from '../../hooks/useOrderPaymentRealtime';
+import { orderPartyName, orderPartyAddress } from '../../lib/orderParties';
+
+// Max time (ms) to wait for data before giving up and showing an error.
+const LOAD_TIMEOUT_MS = 15000;
+
+// Translate cryptic Supabase / network errors into friendly messages.
+const normalizeError = (err) => {
+  const msg = err?.message || String(err || '');
+  if (msg.includes('PGRST116') || msg.includes('0 rows')) return 'Order not found. It may have been deleted or you may not have access.';
+  if (msg.includes('JWT') || msg.includes('auth') || msg.toLowerCase().includes('unauthorized')) return 'Your session has expired. Please log in again.';
+  if (msg.toLowerCase().includes('network') || msg.toLowerCase().includes('fetch') || msg.toLowerCase().includes('failed to fetch')) return 'Network error. Please check your internet connection and try again.';
+  if (msg.toLowerCase().includes('timeout') || msg.includes('AbortError')) return 'The request timed out. Please try again.';
+  return msg || 'Failed to load order. Please try again.';
+};
+
+// Pure — no component state — so both the payment-return flow and the
+// generic live-order listener can check settlement without either one
+// needing to depend on the other's callback identity.
+const isPaymentSettled = (row) => (
+  row?.payment_status === 'paid'
+  || (Number(row?.amount_paid) > 0 && Number(row?.remaining_balance) <= 0)
+);
+
+const OrderDetailPage = () => {
+  usePageTitle('Booking Details');
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { user, userProfile } = useAuth();
+  const toast = useToast();
+
+  const [order, setOrder] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [cancelling, setCancelling] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [showEditContactModal, setShowEditContactModal] = useState(false);
+  const [savingContactDetails, setSavingContactDetails] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState(-1);
+  const [lightboxImages, setLightboxImages] = useState([]);
+  const [resolvedPickupPhotos, setResolvedPickupPhotos] = useState([]);
+  const [photoLoadState, setPhotoLoadState] = useState({});
+  const [resolvedDeliveryPhotos, setResolvedDeliveryPhotos] = useState([]);
+  const [deliveryPhotoLoadState, setDeliveryPhotoLoadState] = useState({});
+  const [paymentTransactions, setPaymentTransactions] = useState([]);
+  const [cancellationSettlement, setCancellationSettlement] = useState(null);
+  const [statusEvents, setStatusEvents] = useState([]);
+
+  const stepTimestamps = useMemo(
+    () => buildStatusTimestamps(statusEvents, order?.created_at, order?.status),
+    [statusEvents, order?.created_at, order?.status]
+  );
+  
+  // Feedback state
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [feedbackRating, setFeedbackRating] = useState(5);
+  const [feedbackMessage, setFeedbackMessage] = useState('');
+  const [submittingFeedback, setSubmittingFeedback] = useState(false);
+  const [hasFeedback, setHasFeedback] = useState(false);
+
+  const [processingPayment, setProcessingPayment] = useState(false);
+  const [verifyingPayment, setVerifyingPayment] = useState(false);
+  const [paymentVerificationPending, setPaymentVerificationPending] = useState(false);
+  const [paymentResultModal, setPaymentResultModal] = useState(null);
+  // Custom partial-payment amount — defaults to the full balance, editable
+  // down to as little as ₱0.01. Re-defaulted once per fresh page load (keyed
+  // on order.id, not on every balance change) so it doesn't get clobbered
+  // while the customer is mid-edit if the order refreshes in the background.
+  const [payAmount, setPayAmount] = useState('');
+
+  // Statuses where payment is allowed (cargo has been picked up and weighed).
+  // Includes 'Delivered': a Pay Later delivery can leave a genuine remaining
+  // balance (see record_delivery_payment's Cash-or-GCash-at-delivery rule),
+  // and the server (paymongo-create-payment) never restricted by status in
+  // the first place — it only ever checks remaining_balance. Excluding
+  // 'Delivered' here was a UI-only gap that hid an already-supported action.
+  const PAYABLE_STATUSES = ['Picked Up', 'In Transit', 'Arrived at Hub', 'Out for Delivery', 'Delivered'];
+
+  // Timeout ref — cleared if data arrives before LOAD_TIMEOUT_MS
+  const timeoutRef = useRef(null);
+  const isMountedRef = useRef(true);
+  const paymentSourceRef = useRef(null);
+  const paymentChannelRef = useRef(null);
+  const paymentConfirmedRef = useRef(false);
+  const paymentVerificationInFlightRef = useRef(false);
+  const orderLoadSequenceRef = useRef(0);
+
+  // Mirror the two payment-verification booleans into refs so applyOrderData
+  // (below) can read their current value without depending on them — that
+  // dependency would otherwise recreate applyOrderData (and everything built
+  // on it, including the live-tracking channel further down) every time a
+  // payment starts or finishes verifying.
+  const paymentVerificationPendingRef = useRef(false);
+  const verifyingPaymentRef = useRef(false);
+  useEffect(() => { paymentVerificationPendingRef.current = paymentVerificationPending; }, [paymentVerificationPending]);
+  useEffect(() => { verifyingPaymentRef.current = verifyingPayment; }, [verifyingPayment]);
+
+  const clearLoadTimeout = useCallback(() => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+  }, []);
+
+  const startLoadTimeout = useCallback(() => {
+    clearLoadTimeout();
+    timeoutRef.current = setTimeout(() => {
+      if (isMountedRef.current) {
+        setLoading(false);
+        setError('The request took too long. Please check your connection and try again.');
+      }
+    }, LOAD_TIMEOUT_MS);
+  }, [clearLoadTimeout]);
+
+  // Tears down the payment-reconciliation realtime channel (opened only
+  // during the PayMongo-return flow below). Declared here, ahead of
+  // applyOrderData, because applyOrderData calls it directly.
+  const clearPaymentReconciliation = useCallback(() => {
+    if (paymentChannelRef.current) {
+      void supabase.removeChannel(paymentChannelRef.current);
+      paymentChannelRef.current = null;
+    }
+  }, []);
+
+  // Applies a freshly-fetched order (+ its payment/status rows) to state, and
+  // runs the Delivered-feedback check. Shared by the full loader below and by
+  // the realtime-triggered silent refresh, so a live status change into
+  // 'Delivered' offers the feedback prompt exactly like a fresh page load
+  // would, instead of only checking once at mount.
+  const applyOrderData = useCallback((data, pmts, events, settlement = null) => {
+    if (!isMountedRef.current) return;
+    setOrder(data);
+    setPaymentTransactions(pmts);
+    setStatusEvents(events || []);
+    setCancellationSettlement(settlement);
+
+    // A payment can settle while the payment-return banner is still telling
+    // the customer "still being confirmed" — a late webhook, or an admin
+    // recording payment manually. That banner is driven by its own state,
+    // not by `order`, so without this the live-tracking listener above could
+    // update the balance in the Payment Details card while the button area
+    // right below it keeps insisting nothing has happened yet. Gated on the
+    // verification flags (not just "is this order paid") so opening an
+    // already-settled order doesn't fire a stray "Payment confirmed!" toast
+    // the first time any unrelated field on it changes.
+    if (
+      isPaymentSettled(data)
+      && !paymentConfirmedRef.current
+      && (paymentVerificationPendingRef.current || verifyingPaymentRef.current)
+    ) {
+      paymentConfirmedRef.current = true;
+      clearPaymentReconciliation();
+      const pendingPayment = getPendingPayment({ orderId: id, role: 'customer', userId: user?.id });
+      const savedAmount = Number(pendingPayment?.amount || 0);
+      clearPendingPayment(id);
+      setPaymentVerificationPending(false);
+      setVerifyingPayment(false);
+      setPaymentResultModal({ variant: 'success', amount: savedAmount || Number(data.amount_paid || 0) });
+    }
+
+    if (data.status === 'Delivered') {
+      checkIfFeedbackExists(id).then(exists => {
+        if (isMountedRef.current) {
+          setHasFeedback(exists);
+          if (!exists) {
+            const skipped = localStorage.getItem(`feedback_skipped_${id}`);
+            if (!skipped) {
+              setShowFeedbackModal(true);
+            }
+          }
+        }
+      }).catch(console.error);
+    }
+  }, [id, clearPaymentReconciliation, user?.id]);
+
+  const fetchOrderData = useCallback(async () => {
+    const data = await getOrderById(id);
+    let pmts = [];
+    let events = [];
+    let settlement = null;
+    try {
+      pmts = await getPaymentTransactions(id);
+    } catch (err) {
+      if (import.meta.env.DEV) console.warn('Failed to fetch payment history', err);
+    }
+    try {
+      events = await getOrderStatusEvents(id);
+    } catch (err) {
+      if (import.meta.env.DEV) console.warn('Failed to fetch status events', err);
+    }
+    if (data.status === ORDER_STATUS.CANCELLED) {
+      try {
+        settlement = await getCancellationSettlementSummary(id);
+      } catch (err) {
+        if (import.meta.env.DEV) console.warn('Failed to fetch cancellation settlement', err);
+      }
+    }
+    return { data, pmts, events, settlement };
+  }, [id]);
+
+  const loadOrder = useCallback(async () => {
+    if (!id) {
+      setError('No order ID provided.');
+      setLoading(false);
+      return;
+    }
+
+    const requestSequence = ++orderLoadSequenceRef.current;
+    setError(null);
+    if (!order) setLoading(true);
+    startLoadTimeout();
+
+    // Fast-path: Hydrate from cache immediately so offline navigation is instant
+    try {
+      const cached = await getCachedOrder(id);
+      if (cached && isMountedRef.current && requestSequence === orderLoadSequenceRef.current) {
+        applyOrderData({ ...cached, _fromCache: true }, [], []);
+        setLoading(false);
+      }
+    } catch {
+      // Best-effort cache lookup
+    }
+
+    try {
+      const { data, pmts, events, settlement } = await fetchOrderData();
+      clearLoadTimeout();
+      if (isMountedRef.current && requestSequence === orderLoadSequenceRef.current) {
+        applyOrderData(data, pmts, events, settlement);
+        setLoading(false);
+      }
+    } catch (err) {
+      clearLoadTimeout();
+      if (isMountedRef.current && requestSequence === orderLoadSequenceRef.current) {
+        setError(normalizeError(err));
+        setLoading(false);
+      }
+    }
+  }, [id, startLoadTimeout, clearLoadTimeout, fetchOrderData, applyOrderData]);
+
+  // Refetches without touching `loading`/`error` — used by the realtime
+  // listener below. A realtime tick means the page already has good data on
+  // screen; routing it through the same `loading` flag as the initial load
+  // would flash the whole page back to its loading spinner on every status
+  // change, which is worse than the staleness this is fixing.
+  const refreshOrderSilently = useCallback(async () => {
+    if (!id || !isMountedRef.current) return;
+    const requestSequence = ++orderLoadSequenceRef.current;
+    try {
+      const { data, pmts, events, settlement } = await fetchOrderData();
+      if (isMountedRef.current && requestSequence === orderLoadSequenceRef.current) {
+        applyOrderData(data, pmts, events, settlement);
+        setLoading(false);
+      }
+    } catch {
+      // Silent: a failed background refresh shouldn't disturb data already
+      // on screen. The next realtime event, or a manual action, retries.
+    }
+  }, [id, fetchOrderData, applyOrderData]);
+
+  useOrderPaymentRealtime(id, refreshOrderSilently);
+
+  // Load order on mount and when id changes
+  useEffect(() => {
+    isMountedRef.current = true;
+    loadOrder();
+    return () => {
+      isMountedRef.current = false;
+      clearLoadTimeout();
+    };
+  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Browsers may preserve this React tree in the back-forward cache while the
+  // customer visits GCash. Returning with the Back button then restores the
+  // old `processingPayment=true` value instead of remounting the page. Always
+  // release that navigation-only lock when the document becomes active again.
+  useEffect(() => {
+    const handlePageShow = () => {
+      if (isMountedRef.current) setProcessingPayment(false);
+    };
+    window.addEventListener('pageshow', handlePageShow);
+    return () => window.removeEventListener('pageshow', handlePageShow);
+  }, []);
+
+  // ── Payment Return Handler ───────────────────────────────────────────────
+  // When the customer returns from PayMongo with ?payment=success,
+  // poll the server to trigger reconciliation.
+  useEffect(() => {
+    const paymentResult = searchParams.get('payment');
+    if (!paymentResult || !id) return;
+
+    // Clean up the URL immediately
+    const newParams = new URLSearchParams(searchParams);
+    newParams.delete('payment');
+    setSearchParams(newParams, { replace: true });
+
+    // The success path is handled by the resilient effect below: it combines
+    // realtime order updates, fallback polling, and a manual refresh action.
+    if (paymentResult === 'failed') {
+      clearPendingPayment(id);
+      setPaymentResultModal({ variant: 'error' });
+    }
+  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => () => clearPaymentReconciliation(), [clearPaymentReconciliation]);
+
+  const markPaymentConfirmed = useCallback(async (paidAmount = null) => {
+    if (paymentConfirmedRef.current) return true;
+    paymentConfirmedRef.current = true;
+    clearPaymentReconciliation();
+    const pendingPayment = getPendingPayment({ orderId: id, role: 'customer', userId: user?.id });
+    const savedAmount = Number(pendingPayment?.amount || 0);
+    clearPendingPayment(id);
+    if (isMountedRef.current) {
+      setPaymentVerificationPending(false);
+      setVerifyingPayment(false);
+      let amount = paidAmount || savedAmount;
+      if (!amount) {
+        try {
+          const attempt = await getLatestPaymentAttemptByOrder(id);
+          amount = Number(attempt?.amount || 0);
+        } catch {
+          amount = 0;
+        }
+      }
+      setPaymentResultModal({ variant: 'success', amount: amount || Number(order?.remaining_balance || order?.amount_paid || 0) });
+      await loadOrder();
+    }
+    return true;
+  }, [clearPaymentReconciliation, id, loadOrder, order, user?.id]);
+
+  /**
+   * Reconcile a returned PayMongo source for about 20 seconds. The webhook is
+   * authoritative, but the customer needs active checks while it is in flight.
+   * The realtime subscription below covers a webhook that lands between polls.
+   */
+  const verifyPaymentStatus = useCallback(async () => {
+    const sourceId = paymentSourceRef.current;
+    if (!sourceId || !id || paymentVerificationInFlightRef.current) return false;
+
+    paymentVerificationInFlightRef.current = true;
+    if (isMountedRef.current) {
+      setVerifyingPayment(true);
+      setPaymentVerificationPending(false);
+    }
+
+    const retryDelays = [0, 2000, 4000, 6000, 8000];
+    try {
+      for (const delay of retryDelays) {
+        if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+        if (!isMountedRef.current || paymentConfirmedRef.current) return paymentConfirmedRef.current;
+
+        try {
+          const result = await pollPaymentStatus(sourceId, id);
+          if (isPaymentPollReconciled(result)) {
+            return await markPaymentConfirmed();
+          }
+        } catch {
+          // A transient verification error should not end reconciliation.
+        }
+
+        try {
+          const freshOrder = await getOrderById(id);
+          if (isPaymentSettled(freshOrder)) return await markPaymentConfirmed();
+        } catch {
+          // Keep the next retry alive; the normal page loader handles a
+          // persistent access or network failure.
+        }
+      }
+
+      if (isMountedRef.current && !paymentConfirmedRef.current) {
+        setVerifyingPayment(false);
+        setPaymentVerificationPending(true);
+        setPaymentResultModal({ variant: 'processing' });
+      }
+      return false;
+    } finally {
+      paymentVerificationInFlightRef.current = false;
+    }
+  }, [id, markPaymentConfirmed]);
+
+  const handleRefreshPaymentStatus = useCallback(async () => {
+    if (paymentSourceRef.current) {
+      await verifyPaymentStatus();
+      return;
+    }
+
+    try {
+      const attempt = await getLatestPaymentAttemptByOrder(id);
+      if (attempt?.status === 'reconciled') {
+        // markPaymentConfirmed clears the pending banner, removes the stored
+        // source, toasts and reloads — reloading alone left the "still being
+        // confirmed" notice on screen even though the payment had landed.
+        await markPaymentConfirmed(Number(attempt.amount || 0));
+        return;
+      }
+      if (attempt?.source_id) {
+        paymentSourceRef.current = attempt.source_id;
+        setPaymentVerificationPending(false);
+        await verifyPaymentStatus();
+        return;
+      }
+    } catch {
+      // Fall through to a normal order refresh if the attempt lookup fails.
+    }
+    await loadOrder();
+  }, [id, loadOrder, markPaymentConfirmed, verifyPaymentStatus]);
+
+  // A successful return gets a realtime listener plus bounded backoff polling.
+  useEffect(() => {
+    if (searchParams.get('payment') !== 'success' || !id) return;
+
+    paymentConfirmedRef.current = false;
+    const pendingPayment = getPendingPayment({ orderId: id, role: 'customer', userId: user?.id });
+    let sourceId = pendingPayment?.sourceId || null;
+
+    const beginVerification = async () => {
+      if (!sourceId) {
+        try {
+          const attempt = await getLatestPaymentAttemptByOrder(id);
+          if (attempt?.status === 'reconciled') {
+            const savedAmount = Number(pendingPayment?.amount || 0);
+            clearPendingPayment(id);
+            setPaymentResultModal({ variant: 'success', amount: Number(attempt?.amount || savedAmount || 0) });
+            await loadOrder();
+            return;
+          }
+          sourceId = attempt?.source_id || null;
+        } catch {
+          sourceId = null;
+        }
+      }
+
+      if (!sourceId) {
+        setVerifyingPayment(false);
+        setPaymentVerificationPending(true);
+        setPaymentResultModal({ variant: 'processing' });
+        return;
+      }
+
+      paymentSourceRef.current = sourceId;
+      setPaymentVerificationPending(false);
+
+      paymentChannelRef.current = supabase
+        .channel(`customer_payment_${id}`)
+        .on('postgres_changes', {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'orders',
+          filter: `id=eq.${id}`,
+        }, (payload) => {
+          if (isPaymentSettled(payload.new)) void markPaymentConfirmed();
+        })
+        .subscribe();
+
+      await verifyPaymentStatus();
+    };
+
+    void beginVerification();
+    // The URL is cleaned by the preceding effect. This effect intentionally
+    // starts once for this booking-return event.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  // Default the pay-now amount to the full balance once per order load.
+  // Keyed on order.id, not on `order` itself (which also changes on every
+  // unrelated field), so a background refresh never overwrites an amount
+  // the customer is actively editing.
+  useEffect(() => {
+    if (order) setPayAmount(sanitizeAmount(outstandingBalance(order)));
+  }, [order?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Resolve photo URLs when order changes
+  useEffect(() => {
+    const photos = Array.isArray(order?.pickup_photos) ? order.pickup_photos : [];
+    if (photos.length === 0) {
+      setResolvedPickupPhotos([]);
+      return;
+    }
+    let cancelled = false;
+    resolvePhotoUrls(photos)
+      .then(urls => { if (!cancelled) setResolvedPickupPhotos(urls); })
+      .catch(() => { if (!cancelled) setResolvedPickupPhotos([]); });
+    return () => { cancelled = true; };
+  }, [order?.pickup_photos]);
+
+  // Preload photo images to detect load/fail state
+  useEffect(() => {
+    let cancelled = false;
+    setPhotoLoadState({});
+    resolvedPickupPhotos.forEach((url, index) => {
+      const preview = new window.Image();
+      preview.onload  = () => { if (!cancelled) setPhotoLoadState(prev => ({ ...prev, [index]: 'loaded' })); };
+      preview.onerror = () => { if (!cancelled) setPhotoLoadState(prev => ({ ...prev, [index]: 'failed' })); };
+      preview.src = url;
+    });
+    return () => { cancelled = true; };
+  }, [resolvedPickupPhotos]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const photos = Array.isArray(order?.delivery_photos) ? order.delivery_photos : [];
+    if (photos.length === 0) {
+      setResolvedDeliveryPhotos([]);
+      return;
+    }
+    resolvePhotoUrls(photos)
+      .then(urls => { if (!cancelled) setResolvedDeliveryPhotos(urls); })
+      .catch(() => { if (!cancelled) setResolvedDeliveryPhotos([]); });
+    return () => { cancelled = true; };
+  }, [order?.delivery_photos]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setDeliveryPhotoLoadState({});
+    resolvedDeliveryPhotos.forEach((url, index) => {
+      const preview = new window.Image();
+      preview.onload  = () => { if (!cancelled) setDeliveryPhotoLoadState(prev => ({ ...prev, [index]: 'loaded' })); };
+      preview.onerror = () => { if (!cancelled) setDeliveryPhotoLoadState(prev => ({ ...prev, [index]: 'failed' })); };
+      preview.src = url;
+    });
+    return () => { cancelled = true; };
+  }, [resolvedDeliveryPhotos]);
+
+  // Submits a cancellation REQUEST with the customer's stated reason. Nothing
+  // is cancelled here — the RPC moves the order to 'Pending Cancellation',
+  // notifies every admin and writes the activity log in one transaction, so
+  // there is no client-side follow-up write that could be lost mid-flight.
+  const handleCancel = async (reason) => {
+    if (!user) {
+      setShowCancelModal(false);
+      toast.error('Your session has expired. Please log in again.');
+      navigate('/login');
+      return;
+    }
+    setCancelling(true);
+    try {
+      await requestOrderCancellation(id, reason);
+      setShowCancelModal(false);
+      await loadOrder();
+      toast.success('Cancellation request sent. We will let you know once it has been reviewed.');
+    } catch (err) {
+      // The modal stays open so the typed reason is not lost on a failure.
+      toast.error(normalizeError(err));
+    } finally {
+      setCancelling(false);
+    }
+  };
+
+  // Customer-side save for the Sender/Receiver edit modal. Routed through
+  // update_order_contact_details() (see lib/database.js), which re-checks
+  // ownership and the status lock server-side and writes the activity_logs
+  // row in the same transaction as the update — no separate logOrder() call
+  // needed here, and none is made on purpose.
+  const handleSaveContactDetails = async (fields) => {
+    setSavingContactDetails(true);
+    try {
+      await updateOrderContactDetails(id, fields);
+      setShowEditContactModal(false);
+      await loadOrder();
+      toast.success('Sender & receiver details updated.');
+    } catch (err) {
+      toast.error(normalizeError(err));
+    } finally {
+      setSavingContactDetails(false);
+    }
+  };
+
+  const handleFeedbackSkip = () => {
+    localStorage.setItem(`feedback_skipped_${id}`, 'true');
+    setShowFeedbackModal(false);
+  };
+
+  const handleFeedbackSubmit = async () => {
+    if (!feedbackMessage.trim()) {
+      toast.error('Please provide a message for your feedback.');
+      return;
+    }
+    setSubmittingFeedback(true);
+    try {
+      await submitFeedback({
+        orderId: id,
+        customerId: user.id,
+        rating: feedbackRating,
+        message: feedbackMessage.trim()
+      });
+      toast.success('Thank you! Your feedback has been submitted.');
+      setHasFeedback(true);
+      setShowFeedbackModal(false);
+    } catch (err) {
+      toast.error('Failed to submit feedback. Please try again later.');
+    } finally {
+      setSubmittingFeedback(false);
+    }
+  };
+
+  const handlePayNow = async () => {
+    if (processingPayment) return;
+    const balance = outstandingBalance(order);
+    if (balance <= 0) return;
+
+    // Custom partial-payment amount. The edge function re-validates this
+    // exact rule server-side (amount > 0 and <= remaining_balance) before
+    // creating the PayMongo charge — this check is just for a fast, clear
+    // client-side message instead of a round trip.
+    const amount = parseAmount(payAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast.error('Enter an amount greater than ₱0.');
+      return;
+    }
+    if (amount > balance + 0.01) {
+      toast.error(`Amount cannot exceed your balance of ${formatMoney(balance)}.`);
+      return;
+    }
+
+    setProcessingPayment(true);
+    try {
+      const customer = {
+        name: userProfile?.name || orderPartyName(order, 'sender'),
+        phone: userProfile?.phone || order.sender_phone,
+      };
+
+      const returnTo = `/customer/orders/${order.id}`;
+      const { sourceId, checkoutUrl, returnToken, returnTo: safeReturnTo } = await initiateGCashPayment(amount, order.tracking_number, customer, false, order.id, returnTo);
+
+      await registerSource(sourceId, amount, {
+        orderId: order.id,
+        returnToken,
+      });
+
+      // Save the exact source with its role/account so another account using
+      // this phone can never inherit it after logout.
+      savePendingPayment({
+        orderId: order.id,
+        sourceId,
+        amount,
+        role: 'customer',
+        userId: user?.id,
+      });
+      savePaymentReturnContext({
+        returnToken,
+        returnTo: safeReturnTo || returnTo,
+        role: 'customer',
+        userId: user?.id,
+      });
+
+      // Redirect to GCash checkout in the same tab ONLY AFTER registerSource is complete
+      window.location.href = checkoutUrl;
+    } catch (err) {
+      toast.error(err.message || 'Failed to initiate payment.');
+      setProcessingPayment(false);
+    }
+    // No finally-reset on purpose: the button must stay disabled while the
+    // redirect is in flight. Re-enabling it in that gap allowed a second tap
+    // to create a duplicate GCash charge. The page unloads on redirect; the
+    // catch above resets on error.
+  };
+
+  // ── Loading State ──────────────────────────────────────────────────────────
+  if (loading) return <CenteredSpinner />;
+
+  // ── Error State ────────────────────────────────────────────────────────────
+  if (error) return (
+    <div className="page-transition customer-order-detail-page">
+      <button onClick={() => navigate(-1)} className="btn btn-ghost customer-back-action mb-16">
+        <ArrowLeft size={18} /> Back
+      </button>
+      <div className="card animate-scale-in text-center" role="alert" style={{ padding: 40 }}>
+        <div className="flex items-center justify-center mx-auto mb-16" style={{ width: 56, height: 56, borderRadius: '50%', background: 'var(--error-bg)' }}>
+          <AlertTriangle size={28} color="var(--error)" aria-hidden="true" />
+        </div>
+        <h3 className="mb-8" style={{ color: 'var(--error-dark)' }}>Unable to Load Booking</h3>
+        <p className="text-secondary text-sm mb-20">{error}</p>
+        <div className="flex gap-12 justify-center flex-wrap">
+          <button className="btn btn-primary" onClick={loadOrder}>Try Again</button>
+          <button className="btn btn-ghost" onClick={() => navigate('/customer/orders')}>Back to Orders</button>
+        </div>
+      </div>
+    </div>
+  );
+
+  // ── Not Found ──────────────────────────────────────────────────────────────
+  if (!order) return (
+    <div className="page-transition customer-order-detail-page">
+      <button onClick={() => navigate(-1)} className="btn btn-ghost customer-back-action mb-16">
+        <ArrowLeft size={18} /> Back
+      </button>
+      <div className="card animate-scale-in text-center" style={{ padding: 40 }}>
+        <Package size={40} style={{ opacity: 0.3, margin: '0 auto 16px' }} />
+        <h3 className="mb-8">Booking Not Found</h3>
+        <p className="text-secondary text-sm mb-20">This booking does not exist or you don't have permission to view it.</p>
+        <button className="btn btn-primary" onClick={() => navigate('/customer/orders')}>Back to Orders</button>
+      </div>
+    </div>
+  );
+
+  const isCancelled = order.status === ORDER_STATUS.CANCELLED;
+  const awaitingCancellation = hasPendingCancellation(order);
+  // Was `order.status === 'Pending'`, which hid the button the moment an admin
+  // put the booking on a trip. canCancelOrder() is the shared rule, kept in
+  // sync with request_order_cancellation()'s server-side check: anything not
+  // yet picked up, and not already under review. Once the courier has
+  // physically collected the parcel, cancelling is an admin-only call — see
+  // canCancelOrder's own doc comment in constants/status.js.
+  const canCancel = canCancelOrder(order);
+  const hasPhotos = resolvedPickupPhotos.length > 0;
+  const balance = outstandingBalance(order);
+  const settlementState = getSettlementState(order);
+  // Discount reason/notes/who-applied are admin-internal and never rendered
+  // here — only the peso amounts, which the customer needs to understand
+  // their bill.
+  const hasOrderDiscount = (parseFloat(order.discount_amount || 0) || 0) > 0;
+
+  return (
+    <div className="page-transition customer-order-detail-screen">
+      <button onClick={() => navigate(-1)} className="btn btn-ghost customer-back-action mb-16">
+        <ArrowLeft size={18} /> Back
+      </button>
+
+      {/* Header */}
+      <div className="customer-order-detail-header flex items-center justify-between animate-slide-up mb-20">
+        <div>
+          <div className="order-tracking-title">
+            <h1 className="fw-700">{order.tracking_number}</h1>
+            <span className="order-tracking-actions">
+              <CopyButton value={order.tracking_number} label="Copy tracking number" copiedMessage="Tracking number copied" />
+              <ShareButton trackingNumber={order.tracking_number} />
+            </span>
+          </div>
+          <div className="flex items-center gap-8 mt-4 text-sm flex-wrap">
+            <span className="fw-700" style={{ color: 'var(--text)' }}>{order.origin}</span>
+            <span className="fw-700" style={{ color: 'var(--primary-text)' }}>➔</span>
+            <span className="fw-700 text-secondary">{order.destination}</span>
+            <span className="chip chip-secondary inline-flex items-center gap-4 text-xs font-semibold" style={{ padding: '2px 8px' }}>
+              <Package size={12} aria-hidden="true" />
+              {order.package_quantity || 1} {(order.package_quantity || 1) === 1 ? 'box' : 'boxes'}
+            </span>
+          </div>
+        </div>
+        <StatusBadge status={order.status} />
+      </div>
+
+      {/* Cancellation request awaiting review — states plainly that nothing
+          has been cancelled yet, and shows back the reason that was given so
+          the customer can see what the admin is reading. */}
+      {awaitingCancellation && (
+        <div className="alert-banner alert-banner-warning animate-slide-up mb-16" role="status">
+          <AlertTriangle size={16} aria-hidden="true" />
+          <div className="flex flex-col gap-4">
+            <span className="fw-700">Cancellation requested — awaiting review</span>
+            <span className="text-sm">
+              This booking is still active while our team reviews your request. You will be
+              notified once it is approved or declined.
+            </span>
+            {order.cancellation_details?.reason && (
+              <span className="text-sm" style={{ opacity: 0.9 }}>
+                Your reason: “{order.cancellation_details?.reason}”
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Declined request — the order carried on, and the note says why. */}
+      {!awaitingCancellation && !isCancelled && order.cancellation_details?.reviewed_at && order.cancellation_details?.reason && (
+        <div className="alert-banner alert-banner-info animate-slide-up mb-16" role="status">
+          <AlertTriangle size={16} aria-hidden="true" />
+          <div className="flex flex-col gap-4">
+            <span className="fw-700">Your cancellation request was declined</span>
+            <span className="text-sm">
+              This booking is still going ahead.
+              {order.cancellation_details?.review_notes ? ` Note from our team: ${order.cancellation_details?.review_notes}` : ''}
+            </span>
+          </div>
+        </div>
+      )}
+
+      <CancelBookingModal
+        isOpen={showCancelModal}
+        onClose={() => setShowCancelModal(false)}
+        onConfirm={handleCancel}
+        loading={cancelling}
+        trackingNumber={order.tracking_number}
+      />
+
+      {/* Tracking Timeline */}
+      {!isCancelled && (
+        <div className="customer-detail-card customer-tracking-card card stagger-item mb-16" style={{ animationDelay: '40ms' }}>
+          <div className="card-body p-16">
+            <h4 className="fw-700 mb-16">Tracking Timeline</h4>
+            <TrackingTimeline currentStatus={timelineStatus(order)} compact stepTimestamps={stepTimestamps} />
+          </div>
+        </div>
+      )}
+
+      {/* Feedback Banner */}
+      {order.status === 'Delivered' && !hasFeedback && (
+        <div className="alert-banner alert-banner-success animate-scale-in mb-16 flex justify-between items-center" style={{ padding: '16px 20px', gap: 16 }}>
+          <div className="flex flex-col gap-4">
+            <div className="fw-700 text-base">🎉 Delivery Complete!</div>
+            <p className="text-sm m-0" style={{ opacity: 0.9 }}>How was your experience? Your feedback helps us improve.</p>
+          </div>
+          <button
+            className="btn btn-alert-action shrink-0"
+            style={{ whiteSpace: 'nowrap' }}
+            onClick={() => setShowFeedbackModal(true)}
+          >
+            Leave Feedback
+          </button>
+        </div>
+      )}
+
+      {/* Cancelled status display */}
+      {/* Cancellation details. The banner used to say only "this booking has
+          been cancelled", which is the one thing the status badge above already
+          says — the questions a customer opens a cancelled booking to answer
+          are "what reason did I give?" and "what did they say?". Both are on
+          the row; neither was being shown.
+
+          `cancellation_requested_at` is what separates the two routes in: a
+          request this customer made, or a cancellation the team made without
+          one. Labelling an admin's reason as "your reason" would be a small
+          lie that reads as the app losing track of who did what. */}
+      {isCancelled && (
+        <div className="alert-banner alert-banner-error animate-scale-in mb-16" style={{ padding: '20px 24px' }}>
+          <div className="flex flex-col gap-8" style={{ width: '100%' }}>
+            <div className="flex items-center gap-8">
+              <XCircle size={20} aria-hidden="true" />
+              <span className="fw-700 text-base">Booking Cancelled</span>
+            </div>
+            <p className="text-sm m-0" style={{ opacity: 0.8 }}>
+              {order.cancellation_details?.requested_at
+                ? 'This booking was cancelled at your request and cannot be modified.'
+                : 'This booking was cancelled by our team and cannot be modified.'}
+            </p>
+
+            {order.cancellation_details?.reason && (
+              <div className="text-sm">
+                <div className="fw-700">
+                  {order.cancellation_details?.requested_at ? 'Your reason' : 'Reason'}
+                </div>
+                <p className="m-0" style={{ opacity: 0.9 }}>“{order.cancellation_details?.reason}”</p>
+              </div>
+            )}
+
+            {order.cancellation_details?.requested_at && order.cancellation_details?.review_notes && (
+              <div className="text-sm">
+                <div className="fw-700">Note from our team</div>
+                <p className="m-0" style={{ opacity: 0.9 }}>“{order.cancellation_details?.review_notes}”</p>
+              </div>
+            )}
+
+            {order.service_area_status === 'rejected' && (
+              <div className="text-sm">
+                <div className="fw-700">Note from our team</div>
+                <p className="m-0" style={{ opacity: 0.9 }}>
+                  This booking is out of our current service coverage.
+                  {order.service_area_remarks ? ` “${order.service_area_remarks}”` : ''}
+                </p>
+              </div>
+            )}
+
+            <p className="text-sm m-0" style={{ opacity: 0.9, borderTop: '1px solid rgba(0,0,0,0.08)', paddingTop: 10, marginTop: 4 }}>
+              Cancellation does not automatically send a refund. See the Payment &amp; Refund Summary below for the recorded financial decision and refund progress.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Trip Info */}
+      {order.trip_id && order.trips && (
+        <div className="customer-detail-card customer-detail-trip-card card stagger-item mb-16" style={{ animationDelay: '60ms' }}>
+          <div className="card-body flex items-center gap-12" style={{ padding: 14 }}>
+            <div className="w-40 h-40 flex items-center justify-center flex-shrink-0" style={{ borderRadius: 10, background: 'linear-gradient(135deg, var(--accent), var(--accent-light))', color: 'white' }}>
+              <Truck size={20} />
+            </div>
+            <div>
+              <div className="text-sm font-bold">Trip: {order.trips.trip_number}</div>
+              <div className="text-xs text-secondary">{order.trips.origin} → {order.trips.destination}</div>
+              {(order.trips.departure_at || order.trips.estimated_arrival_at || order.trips.arrived_at) && (
+                <div className="text-xs text-tertiary mt-4">Times shown in Manila time.</div>
+              )}
+              {order.trips.departure_at && <div className="text-xs text-secondary mt-4">Departed: {formatPhDateTime(order.trips.departure_at)}</div>}
+              <div className="text-xs text-secondary mt-4">
+                {order.trips.arrived_at
+                  ? `Arrived at destination hub: ${formatPhDateTime(order.trips.arrived_at)}`
+                  : order.trips.estimated_arrival_at
+                    ? `Estimated hub arrival: ${formatPhDateTime(order.trips.estimated_arrival_at)}`
+                    : order.trips.departure_at ? 'Hub arrival: To be confirmed' : ''}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sender & Receiver */}
+      <div className="customer-contact-grid stagger-item mb-16" style={{ animationDelay: '120ms' }}>
+        <div className="customer-detail-card customer-contact-card card"><div className="card-body p-16">
+          <div className="text-xs text-tertiary font-bold text-uppercase flex items-center gap-4 mb-8"><User size={12} /> Sender</div>
+          <div className="text-sm font-bold" style={{ marginBottom: 2 }}>{orderPartyName(order, 'sender')}</div>
+          <div className="text-sm text-secondary flex items-center gap-4" style={{ marginBottom: 2 }}><Phone size={12} /> {order.sender_phone}</div>
+          <div className="text-xs text-secondary"><MapPin size={12} className="inline mr-4" />{orderPartyAddress(order, 'sender')}</div>
+        </div></div>
+        <div className="customer-detail-card customer-contact-card card"><div className="card-body p-16">
+          <div className="text-xs text-tertiary font-bold text-uppercase flex items-center gap-4 mb-8"><User size={12} /> Receiver</div>
+          <div className="text-sm font-bold" style={{ marginBottom: 2 }}>{orderPartyName(order, 'receiver')}</div>
+          <div className="text-sm text-secondary flex items-center gap-4" style={{ marginBottom: 2 }}><Phone size={12} /> {order.receiver_phone}</div>
+          <div className="text-xs text-secondary"><MapPin size={12} className="inline mr-4" />{orderPartyAddress(order, 'receiver')}</div>
+        </div></div>
+      </div>
+
+      {/* Hidden once the parcel is out for delivery, delivered, or cancelled —
+          see canEditContactDetails. Past that point the address on the row is
+          either already what the courier is acting on or the booking is done,
+          so there is nothing left for an edit here to reach. */}
+      {canEditContactDetails(order) && (
+        <button
+          type="button"
+          className="btn btn-outline btn-sm animate-slide-up mb-16"
+          onClick={() => setShowEditContactModal(true)}
+        >
+          <User size={14} /> Edit Details
+        </button>
+      )}
+
+      <EditContactDetailsModal
+        isOpen={showEditContactModal}
+        onClose={() => setShowEditContactModal(false)}
+        order={order}
+        onSave={handleSaveContactDetails}
+        saving={savingContactDetails}
+      />
+
+      {/* Package Details */}
+      <div className="customer-detail-card customer-package-card card stagger-item mb-16" style={{ animationDelay: '180ms' }}>
+        <div className="card-body p-16">
+          <div className="flex items-center justify-between mb-12 flex-wrap gap-8">
+            <h4 className="fw-700 m-0 flex items-center gap-8"><Package size={16} aria-hidden="true" />Package Details</h4>
+            <span className="chip chip-secondary inline-flex items-center gap-4 text-xs font-semibold">
+              <Package size={12} aria-hidden="true" />
+              {order.package_quantity || 1} {(order.package_quantity || 1) === 1 ? 'Box / Package' : 'Boxes / Packages'}
+            </span>
+          </div>
+          <div className="grid grid-3 gap-12">
+            <div>
+              <span className="text-xs text-tertiary">Total Packages / Boxes</span>
+              <div className="text-sm fw-700 text-primary flex items-center gap-4">
+                <Package size={14} className="text-tertiary" aria-hidden="true" />
+                {order.package_quantity || 1} {(order.package_quantity || 1) === 1 ? 'box' : 'boxes'}
+              </div>
+            </div>
+
+            <div>
+              <span className="text-xs text-tertiary">Description</span>
+              <div className="text-sm">{order.package_description || '—'}</div>
+            </div>
+
+            <div>
+              <span className="text-xs text-tertiary">Actual Weight</span>
+              <div className={`text-sm fw-600 ${order.actual_weight ? 'text-success' : 'text-secondary'}`}>
+                {order.actual_weight ? `${order.actual_weight} kg` : 'To be weighed'}
+              </div>
+            </div>
+          </div>
+          {(order.package_quantity || 1) > 1 && (
+            <div className="mt-12 p-8 rounded text-xs flex items-center gap-8" style={{ background: 'var(--surface-sunken, #F8FAFC)', border: '1px solid var(--border-light, #E2E8F0)' }}>
+              <Info size={14} className="text-primary flex-shrink-0" aria-hidden="true" />
+              <span>This shipment has <strong>{order.package_quantity} separate boxes/packages</strong>. Each box has its own tracking QR label. Please make sure all {order.package_quantity} boxes are received upon delivery.</span>
+            </div>
+          )}
+          {order.notes && (
+            <div className="mt-12 pt-12" style={{ borderTop: '1px dashed var(--customer-line, #E2E8F0)' }}>
+              <span className="text-xs text-tertiary">Special Instructions / Notes</span>
+              <div className="text-sm mt-4 text-secondary" style={{ whiteSpace: 'pre-wrap' }}>{order.notes}</div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Shipment Proofs */}
+      {(resolvedPickupPhotos.length > 0 || resolvedDeliveryPhotos.length > 0) && (
+        <div className="customer-detail-card customer-proof-card card stagger-item mb-16" style={{ animationDelay: '240ms' }}>
+          <div className="card-body p-16">
+            <h4 className="fw-700 mb-12 flex items-center gap-8"><Camera size={16} />Shipment Proofs</h4>
+            
+            {resolvedPickupPhotos.length > 0 && (
+              <div className="mb-20">
+                <h5 className="text-xs text-tertiary mb-8 flex items-center gap-4"><Package size={12} /> Pickup</h5>
+                <div className="flex gap-10 flex-wrap">
+                  {resolvedPickupPhotos.map((url, i) => {
+                    const loadState = photoLoadState[i] || 'loading';
+                    const canOpen = loadState === 'loaded';
+                    return (
+                      <button key={`pickup-${i}`} onClick={() => { canOpen && setLightboxImages(resolvedPickupPhotos); setLightboxIndex(i); }} type="button" className="customer-proof-photo-btn" disabled={!canOpen}>
+                        <div className="customer-proof-photo-fallback">
+                          <Image size={20} />
+                          <span>{loadState === 'failed' ? 'Unavailable' : `Photo ${i + 1}`}</span>
+                        </div>
+                        {canOpen && <div className="customer-proof-photo-preview" style={{ backgroundImage: `url("${url}")` }} />}
+                        {canOpen && <div className="customer-proof-photo-overlay"><Image size={12} color="white" /></div>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {resolvedDeliveryPhotos.length > 0 && (
+              <div>
+                <h5 className="text-xs text-tertiary mb-8 flex items-center gap-4"><Check size={12} className="text-success" /> Delivery</h5>
+                <div className="flex gap-10 flex-wrap">
+                  {resolvedDeliveryPhotos.map((url, i) => {
+                    const loadState = deliveryPhotoLoadState[i] || 'loading';
+                    const canOpen = loadState === 'loaded';
+                    return (
+                      <button key={`delivery-${i}`} onClick={() => { canOpen && setLightboxImages(resolvedDeliveryPhotos); setLightboxIndex(i); }} type="button" className="customer-proof-photo-btn" disabled={!canOpen}>
+                        <div className="customer-proof-photo-fallback">
+                          <Image size={20} />
+                          <span>{loadState === 'failed' ? 'Unavailable' : `Photo ${i + 1}`}</span>
+                        </div>
+                        {canOpen && <div className="customer-proof-photo-preview" style={{ backgroundImage: `url("${url}")` }} />}
+                        {canOpen && <div className="customer-proof-photo-overlay"><Image size={12} color="white" /></div>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div className="mt-16 text-xs text-secondary" style={{ fontStyle: 'italic', borderTop: '1px solid var(--border-light)', paddingTop: '12px' }}>
+              For your privacy and security, pickup and delivery photos are securely removed from our system 6 months after the transaction is completed.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Payment */}
+      <div className="customer-detail-card customer-payment-card card stagger-item" style={{ animationDelay: '300ms' }}>
+        <div className="card-body p-16">
+          <h4 className="fw-700 mb-12 flex items-center gap-8"><CreditCard size={16} aria-hidden="true" />Payment Details</h4>
+          {isCancelled ? (
+            <>
+              <div className="customer-payment-summary mb-16">
+                <div className="text-center">
+                  <div className="text-xs text-tertiary">Original Fee</div>
+                  <div className="text-sm font-bold text-primary">{formatMoney(parseFloat(order.shipping_cost || 0))}</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-xs text-tertiary">Discount</div>
+                  <div className="text-sm font-bold text-error">− {formatMoney(parseFloat(order.discount_amount || 0))}</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-xs text-tertiary">Historical Final Charge</div>
+                  <div className="text-sm font-bold text-primary">{formatMoney(finalShippingFee(order))}</div>
+                </div>
+              </div>
+              <CancellationSettlementSummary
+                summary={cancellationSettlement}
+                historicalPromiseDate={order.promised_payment_date}
+              />
+            </>
+          ) : (
+            <>
+          <div className="customer-payment-summary mb-20">
+            <div className="text-center">
+              <div className="text-xs text-tertiary">{hasOrderDiscount ? 'Original Fee' : 'Shipping Cost'}</div>
+              <div className="text-sm font-bold text-primary">{isOrderPriced(order) ? formatMoney(parseFloat(order.shipping_cost || 0)) : '—'}</div>
+            </div>
+            {hasOrderDiscount && (
+              <div className="text-center">
+                <div className="text-xs text-tertiary">Discount</div>
+                <div className="text-sm font-bold text-error">− {formatMoney(parseFloat(order.discount_amount || 0))}</div>
+              </div>
+            )}
+            {hasOrderDiscount && (
+              <div className="text-center">
+                <div className="text-xs text-tertiary">Final Fee</div>
+                <div className="text-sm font-bold text-primary">{formatMoney(finalShippingFee(order))}</div>
+              </div>
+            )}
+            <div className="text-center">
+              <div className="text-xs text-tertiary">Paid</div>
+              <div className="text-sm font-bold text-success">{formatMoney(parseFloat(order.amount_paid || 0))}</div>
+            </div>
+            <div className="text-center">
+              <div className="text-xs text-tertiary">Balance</div>
+              {/* A cancelled order always reads SETTLED from getSettlementState
+                  (nothing is collectible on a cancelled booking), but the raw
+                  `balance` figure underneath (shipping_cost - amount_paid) can
+                  still be a positive peso number after only a partial refund —
+                  update_order_payment_totals() has no status-aware branch. Showing
+                  that raw number in success-green here would read as "you're owed
+                  a settled ₱X", which is not what it means. Label it plainly
+                  instead of rendering the raw figure — mirrors the admin page's
+                  own settlementState-gated render just above the payment table. */}
+              {isCancelled ? (
+                <div className="text-sm font-bold text-tertiary">Cancelled</div>
+              ) : settlementState === SETTLEMENT_STATE.UNPRICED ? (
+                <div className="text-sm font-bold text-tertiary">—</div>
+              ) : (
+                <div className={`text-sm font-bold ${settlementState === SETTLEMENT_STATE.OWING ? 'text-error' : 'text-success'}`}>
+                  {formatMoney(balance)}
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="grid grid-2 gap-8">
+            <div>
+              <span className="text-xs text-tertiary">Method</span>
+              <div className="text-sm text-capitalize">
+                {order.payment_method === 'gcash' ? 'GCash' : order.payment_method === 'paylater' ? 'Pay Later' : order.payment_method || '—'}
+              </div>
+            </div>
+            <div>
+              <span className="text-xs text-tertiary">Status</span>
+              <div className="text-sm">
+                {/* A 100% discount means nothing is owed even though nothing
+                    was ever paid — payment_status stays 'unpaid' at the
+                    column level (see derive_payment_status: "amount_paid <= 0"
+                    also covers a genuinely unpriced booking, so that rule is
+                    not changed), but showing "Unpaid" here would read as money
+                    still owing. This is presentation-only. */}
+                {isOrderPriced(order) && finalShippingFee(order) <= 0 ? (
+                  <span className="badge badge-success">No Payment Due</span>
+                ) : (
+                  <span className={`badge ${getOrderPaymentStatusDisplay(order.payment_status).badge}`}>
+                    {getOrderPaymentStatusDisplay(order.payment_status).label}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+          {order.promised_payment_date && (
+            <div className="alert-banner alert-banner-warning mt-12 py-8 px-12" style={{ fontSize: 'var(--text-13)' }}>
+              <AlertTriangle size={14} /> Payment due: {formatPhDate(order.promised_payment_date)}
+            </div>
+          )}
+            </>
+          )}
+
+          {/* Payment Button — Business Logic Enforcement */}
+          {(() => {
+            const hasWeight = parseFloat(order.actual_weight || 0) > 0;
+            const isPayableStatus = PAYABLE_STATUSES.includes(order.status);
+            const canPay = balance > 0 && !isCancelled && isPayableStatus && hasWeight;
+            const isEarlyStatus = ['Pending', 'Assigned'].includes(order.status);
+
+            if (verifyingPayment) {
+              return (
+                <div className="mt-16 text-center">
+                  <div className="btn btn-primary w-full justify-center pointer-events-none" style={{ opacity: 0.7,}}>
+                    <Loader size={16} className="animate-spin mr-8" />
+                    Verifying payment...
+                  </div>
+                </div>
+              );
+            }
+
+            if (paymentVerificationPending) {
+              return (
+                <div className="mt-16 text-center" role="status" aria-live="polite">
+                  <div className="alert-banner alert-banner-info py-10 px-12 br-8" style={{ fontSize: 'var(--text-13)' }}>
+                    <Loader size={14} className="animate-spin" aria-hidden="true" />
+                    <span>Your payment is still being confirmed. Your balance will change automatically when PayMongo finishes processing.</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-outline w-full justify-center mt-8"
+                    onClick={handleRefreshPaymentStatus}
+                  >
+                    Refresh payment status
+                  </button>
+                </div>
+              );
+            }
+
+            if (canPay) {
+              // Same rule the edge function enforces server-side — see the
+              // "SECURITY" comment in supabase/functions/paymongo-create-payment.
+              const payAmountValue = parseAmount(payAmount);
+              let payAmountError = null;
+              if (payAmount === '') {
+                payAmountError = 'Enter an amount';
+              } else if (!Number.isFinite(payAmountValue)) {
+                payAmountError = 'Enter a valid amount';
+              } else if (payAmountValue <= 0) {
+                payAmountError = 'Amount must be greater than ₱0';
+              } else if (payAmountValue > balance + 0.01) {
+                payAmountError = `Amount cannot exceed your balance (${formatMoney(balance)})`;
+              }
+              const payAmountValid = !payAmountError;
+
+              return (
+                <div className="mt-16">
+                  <div className="form-group mb-8">
+                    <label className="form-label" htmlFor="pay-now-amount">Amount to Pay (₱)</label>
+                    <AmountInput
+                      id="pay-now-amount"
+                      className={`form-input ${payAmountError ? 'field-invalid' : ''}`}
+                      value={payAmount}
+                      onValueChange={setPayAmount}
+                      disabled={processingPayment}
+                      placeholder="0.00"
+                      aria-invalid={payAmountError ? 'true' : 'false'}
+                      aria-describedby={payAmountError ? 'pay-now-amount-error' : 'pay-now-amount-hint'}
+                    />
+                    {payAmountError ? (
+                      <div className="field-error-inline" id="pay-now-amount-error" role="alert">
+                        <AlertTriangle size={13} aria-hidden="true" /> {payAmountError}
+                      </div>
+                    ) : (
+                      <p id="pay-now-amount-hint" className="text-xs text-tertiary mt-4">
+                        Full balance is {formatMoney(balance)}. Pay less to settle part of it now — the rest stays owing.
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    className="btn btn-primary w-full justify-center"
+                    onClick={handlePayNow}
+                    disabled={processingPayment || !payAmountValid}
+                  >
+                    {processingPayment ? <Loader size={16} className="animate-spin mr-8" /> : null}
+                    {processingPayment
+                      ? 'Processing...'
+                      : `Pay ${payAmountValid ? formatMoney(payAmountValue) : ''} with GCash`}
+                  </button>
+                </div>
+              );
+            }
+
+            if ((balance > 0 || !isOrderPriced(order)) && !isCancelled && isEarlyStatus) {
+              return (
+                <div className="mt-16">
+                  <div className="alert-banner alert-banner-info py-10 px-12 br-8" style={{ fontSize: 'var(--text-13)' }}>
+                    <Package size={14} style={{ flexShrink: 0, marginTop: 2 }} />
+                    <span>Payment will become available once your shipment has been picked up and the final shipping weight has been confirmed.</span>
+                  </div>
+                </div>
+              );
+            }
+
+            return null;
+          })()}
+
+          {/* Payment History Table */}
+          {paymentTransactions.length > 0 && (
+            <div className="mt-20">
+              <h5 className="text-xs text-tertiary font-bold mb-8">Payment History</h5>
+              <div className="table-responsive customer-payment-history-table-wrap">
+                <table className="table customer-payment-history-table m-0">
+                  <caption className="sr-only">Payment history for this booking</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Date</th>
+                      <th scope="col">Type</th>
+                      <th scope="col">Amount</th>
+                      <th scope="col">Method</th>
+                      <th scope="col">Status</th>
+                      <th scope="col">Recorded By</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paymentTransactions.map(tx => {
+                      const statusInfo = getPaymentActivityStatusDisplay(tx);
+                      const friendlyNotes = getCustomerFriendlyNotes(tx.notes, tx.admin_name);
+                      const customerRef = getCustomerVisibleRef(tx.transaction_reference);
+                      return (
+                        <tr key={tx.id}>
+                          <td data-label="Date">
+                            <div className="cell-stack">
+                              <span>{formatPhDate(tx.created_at)}</span>
+                              <span className="text-tertiary" style={{ fontSize: 'var(--text-12)' }}>{formatPhTime(tx.created_at)}</span>
+                            </div>
+                          </td>
+                          <td data-label="Type">{formatPaymentType(tx.payment_type)}</td>
+                          <td data-label="Amount" className={`fw-600 ${tx.is_refund ? 'text-accent' : 'text-success'}`}>
+                            {tx.is_refund
+                              ? getRefundAmountDisplay(tx, formatMoney)
+                              : formatMoney(parseFloat(tx.amount))}
+                          </td>
+                          <td data-label="Method">
+                            <div className="cell-stack">
+                              <span>{fmtMethod(tx.payment_method)}</span>
+                              {customerRef && <span className="text-tertiary" style={{ fontSize: 'var(--text-12)', wordBreak: 'break-all' }}>Ref: {customerRef}</span>}
+                              {tx.receipt_url && (
+                                <ResolvedPhotoLink photo={tx.receipt_url} className="text-xs text-primary flex items-center gap-4 mt-2">
+                                  <Image size={12} /> View Receipt
+                                </ResolvedPhotoLink>
+                              )}
+                            </div>
+                          </td>
+                          <td data-label="Status">
+                            <span className={`badge badge-${statusInfo.tone} badge-sm`}>{statusInfo.label}</span>
+                          </td>
+                          <td data-label="Recorded By">
+                            <div className="cell-stack">
+                              <span>{tx.is_refund
+                                ? formatRefundRecordedBy(tx.admin_name)
+                                : formatRecordedBy(tx.admin_name, 'customer')}</span>
+                              {friendlyNotes && <span className="text-tertiary" style={{ fontSize: 'var(--text-12)' }}>{friendlyNotes}</span>}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+        </div>
+      </div>
+
+      {/* Timestamps */}
+      <div className="customer-detail-timestamps flex justify-between mt-16 text-xs text-tertiary">
+        <span>Booked: {formatPhDate(order.created_at)}</span>
+        <span>Updated: {formatPhDateTime(order.updated_at)}</span>
+      </div>
+
+      {/* Cancelling is a secondary action: it sits after the shipment details
+          as an outline button so it never outranks tracking or payment. The
+          confirmation modal still carries the solid red. */}
+      {canCancel && (
+        <div className="customer-cancel-zone">
+          <div className="customer-cancel-zone-copy">
+            <span className="fw-700">Need to cancel?</span>
+            <span className="text-sm text-secondary">
+              You can request cancellation until your cargo is picked up. Our team reviews every request.
+            </span>
+          </div>
+          <button type="button" className="btn btn-danger-outline btn-sm" onClick={() => setShowCancelModal(true)} disabled={cancelling}>
+            {cancelling ? <Loader size={14} className="animate-spin" /> : <XCircle size={14} />}
+            Request Cancellation
+          </button>
+        </div>
+      )}
+
+      {lightboxIndex >= 0 && lightboxImages.length > 0 && (
+        <ImageLightbox images={lightboxImages} initialIndex={lightboxIndex} onClose={() => setLightboxIndex(-1)} />
+      )}
+
+      {/* Feedback Modal — portalled to <body>. In place it renders inside
+          <PageTransition>, whose framer-motion transform creates a stacking
+          context, trapping the fixed overlay beneath the bottom tab bar. */}
+      {showFeedbackModal && createPortal(
+        <FocusTrap active={showFeedbackModal}>
+          <div 
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="feedback-modal-title"
+            onClick={() => { if (!submittingFeedback) handleFeedbackSkip(); }}
+            onKeyDown={(e) => { if (e.key === 'Escape' && !submittingFeedback) handleFeedbackSkip(); }}
+            className="feedback-modal-overlay animate-fade-in"
+          >
+            <div
+              onClick={e => e.stopPropagation()}
+              className="feedback-modal-card animate-scale-in"
+            >
+              <h3 id="feedback-modal-title" className="fw-700 text-center mb-8">How was your delivery?</h3>
+              <p className="text-secondary text-center text-sm mb-24">
+                We'd love to hear your feedback on booking {order?.tracking_number}.
+              </p>
+              
+              <div className="flex justify-center gap-8 mb-24">
+                {[1, 2, 3, 4, 5].map(star => (
+                  <button 
+                    key={star}
+                    type="button"
+                    aria-label={`Rate ${star} star${star > 1 ? 's' : ''}`}
+                    onClick={() => setFeedbackRating(star)}
+                    className={`feedback-star-btn hover-lift ${star <= feedbackRating ? 'active' : ''}`}
+                  >
+                    <svg width="36" height="36" viewBox="0 0 24 24" fill={star <= feedbackRating ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                    </svg>
+                  </button>
+                ))}
+              </div>
+
+              <div className="form-group mb-24">
+                <label className="form-label text-sm fw-600" htmlFor="feedback-message">Message</label>
+                <textarea 
+                  id="feedback-message"
+                  className="form-textarea"
+                  rows={4}
+                  value={feedbackMessage}
+                  maxLength={2000}
+                  onChange={e => setFeedbackMessage(e.target.value)}
+                  placeholder="Tell us about your experience..."
+                  disabled={submittingFeedback}
+                />
+              </div>
+
+              <div className="flex flex-col gap-12">
+                <button 
+                  className="btn btn-primary" 
+                  onClick={handleFeedbackSubmit}
+                  disabled={submittingFeedback || !feedbackMessage.trim()}
+                >
+                  {submittingFeedback ? <Loader size={16} className="animate-spin" /> : 'Submit Feedback'}
+                </button>
+                <button 
+                  className="btn btn-ghost" 
+                  onClick={handleFeedbackSkip}
+                  disabled={submittingFeedback}
+                >
+                  Skip for Now
+                </button>
+              </div>
+            </div>
+          </div>
+        </FocusTrap>,
+        document.body
+      )}
+
+      <PaymentResultModal
+        isOpen={!!paymentResultModal}
+        onClose={() => setPaymentResultModal(null)}
+        variant={paymentResultModal?.variant || 'success'}
+        amount={paymentResultModal?.amount}
+        trackingNumber={order?.tracking_number}
+        paymentMethod="GCash"
+        onRetry={
+          paymentResultModal?.variant === 'error' ? handlePayNow
+          : paymentResultModal?.variant === 'processing' ? handleRefreshPaymentStatus
+          : undefined
+        }
+      />
+    </div>
+  );
+};
+
+export default OrderDetailPage;

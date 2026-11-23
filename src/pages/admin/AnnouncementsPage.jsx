@@ -1,0 +1,439 @@
+import { useState, useEffect, useRef } from 'react';
+import { getAnnouncements, createAnnouncement, deleteAnnouncement, retryAnnouncementBroadcast, withTimeout } from '../../lib/database';
+import ConfirmModal from '../../components/ui/ConfirmModal';
+import { logAnnouncement } from '../../lib/activityLog';
+import EmptyState from '../../components/ui/EmptyState';
+import { CenteredSpinner } from '../../components/ui/Loader';
+import { Plus, Trash2, Megaphone, Loader, ChevronDown, Check } from 'lucide-react';
+import { useToast } from '../../hooks/useToast';
+import usePageTitle from '../../hooks/usePageTitle';
+import InfoTooltip from '../../components/ui/InfoTooltip';
+import AnnouncementComments from '../../components/ui/AnnouncementComments';
+import { ANNOUNCEMENT_CATEGORIES, getAnnouncementCategoryInfo } from '../../lib/announcements';
+import useFieldErrors from '../../hooks/useFieldErrors';
+import FieldError, { fieldAttrs, invalidClass } from '../../components/ui/FieldError';
+import { formatPhDate } from '../../utils/datetime';
+
+const CategoryDropdown = ({ value, onChange }) => {
+  const [open, setOpen] = useState(false);
+  const [focusedIndex, setFocusedIndex] = useState(-1);
+  const rootRef = useRef(null);
+  const selected = ANNOUNCEMENT_CATEGORIES.find(c => c.value === value) || ANNOUNCEMENT_CATEGORIES[0];
+  const SelectedIcon = selected.icon;
+
+  useEffect(() => {
+    if (!open) {
+      setFocusedIndex(-1);
+      return;
+    }
+    const selectedIdx = ANNOUNCEMENT_CATEGORIES.findIndex(c => c.value === value);
+    setFocusedIndex(selectedIdx >= 0 ? selectedIdx : 0);
+
+    const handleOutsideClick = (e) => {
+      if (rootRef.current && !rootRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('pointerdown', handleOutsideClick);
+    return () => {
+      document.removeEventListener('pointerdown', handleOutsideClick);
+    };
+  }, [open, value]);
+
+  const handleKeyDown = (e) => {
+    if (!open) {
+      if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(e.key)) {
+        e.preventDefault();
+        setOpen(true);
+      }
+      return;
+    }
+
+    if (e.key === 'Escape' || e.key === 'Tab') {
+      setOpen(false);
+      return;
+    }
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setFocusedIndex(prev => (prev + 1) % ANNOUNCEMENT_CATEGORIES.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setFocusedIndex(prev => (prev - 1 + ANNOUNCEMENT_CATEGORIES.length) % ANNOUNCEMENT_CATEGORIES.length);
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      if (focusedIndex >= 0 && focusedIndex < ANNOUNCEMENT_CATEGORIES.length) {
+        onChange(ANNOUNCEMENT_CATEGORIES[focusedIndex].value);
+        setOpen(false);
+      }
+    }
+  };
+
+  return (
+    <div className="custom-category-select-wrap relative" ref={rootRef}>
+      <button
+        type="button"
+        className="form-select flex items-center justify-between gap-10 text-left cursor-pointer w-full"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label="Select announcement category tag"
+        onClick={() => setOpen(prev => !prev)}
+        onKeyDown={handleKeyDown}
+        style={{ minHeight: 44 }}
+      >
+        <span className="flex items-center gap-8 fw-600 truncate">
+          {SelectedIcon && <SelectedIcon size={16} color="var(--primary)" className="shrink-0" />}
+          <span className="truncate">{selected.label}</span>
+        </span>
+        <ChevronDown size={16} className="shrink-0 text-tertiary" style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s ease',}} />
+      </button>
+      {open && (
+        <div
+          className="custom-category-select-menu rounded-md flex flex-col"
+          role="listbox"
+          tabIndex={-1}
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 6px)',
+            left: 0,
+            right: 0,
+            background: 'var(--surface-raised)',
+            border: '1px solid var(--border)',
+            boxShadow: 'var(--shadow-lg)',
+            zIndex: 9999,
+            padding: 6,
+            gap: 2,
+            maxHeight: 'min(280px, 50vh)',
+            overflowY: 'auto',
+            WebkitOverflowScrolling: 'touch',
+            overscrollBehavior: 'contain',
+            animation: 'fadeIn 0.15s ease-out'
+          }}
+        >
+          {ANNOUNCEMENT_CATEGORIES.map((cat, idx) => {
+            const active = cat.value === value;
+            const focused = idx === focusedIndex;
+            const Icon = cat.icon;
+            return (
+              <button
+                key={cat.value}
+                type="button"
+                role="option"
+                aria-selected={active}
+                className="flex items-center justify-between p-10 rounded-md text-left cursor-pointer"
+                style={{
+                  background: active
+                    ? 'color-mix(in srgb, var(--primary) 14%, transparent)'
+                    : focused
+                    ? 'var(--bg-secondary)'
+                    : 'transparent',
+                  color: active ? 'var(--primary)' : 'var(--text)',
+                  border: 'none',
+                  fontSize: 'var(--text-14)',
+                  fontWeight: active ? 700 : 500,
+                  minHeight: 44,
+                  padding: '10px 12px',
+                  transition: 'background 0.15s ease, color 0.15s ease',
+                  WebkitTapHighlightColor: 'transparent',
+                }}
+                onMouseEnter={() => setFocusedIndex(idx)}
+                onClick={() => {
+                  onChange(cat.value);
+                  setOpen(false);
+                }}
+              >
+                <span className="flex items-center gap-10 truncate">
+                  {Icon && <Icon size={16} color={active ? 'var(--primary)' : 'var(--text-secondary)'} className="shrink-0" />}
+                  <span className="truncate">{cat.label}</span>
+                </span>
+                {active && <Check size={16} color="var(--primary)" className="shrink-0 ml-8" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const AnnouncementsPage = () => {
+  usePageTitle('Announcements');
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ title: '', content: '', category: 'auto', sendEmail: false });
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const { errors, validate, clearError, clearAll } = useFieldErrors();
+  const [deleting, setDeleting] = useState(false);
+  const [retryingId, setRetryingId] = useState(null);
+  const toast = useToast();
+
+  useEffect(() => { load(); }, []);
+
+  const load = async () => {
+    setLoading(true); setError(null);
+    try {
+      const data = await withTimeout(getAnnouncements({ includeEmailOnly: true }));
+      setItems(data || []);
+    } catch(e) {
+      setError(e.message || 'Failed to load announcements.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreate = async () => {
+    let finalTitle = form.title.trim();
+
+    // The length rules are belt-and-braces: maxLength on both controls already
+    // stops the user reaching these figures. They stay because the cap is a
+    // presentation detail and the rule is the actual constraint.
+    const ok = validate({
+      title: !finalTitle
+        ? 'Please enter a title — this is what customers see first.'
+        : finalTitle.length > 100
+          ? 'Title must be 100 characters or less.'
+          : null,
+      content: !form.content.trim()
+        ? 'Please write the announcement content.'
+        : form.content.trim().length > 1500
+          ? 'Content must be 1500 characters or less.'
+          : null,
+    });
+    if (!ok) return;
+
+    // Prepend designated emoji tag if explicit category selected and not already in title
+    const selectedCategory = ANNOUNCEMENT_CATEGORIES.find(c => c.value === form.category);
+    if (selectedCategory && selectedCategory.emoji && !finalTitle.includes(selectedCategory.emoji)) {
+      finalTitle = `${selectedCategory.emoji} ${finalTitle}`.slice(0, 100);
+    }
+
+    setSaving(true);
+    try {
+      await withTimeout(createAnnouncement({
+        title: finalTitle,
+        content: form.content.trim(),
+        send_email: form.sendEmail,
+      }));
+      setForm({ title: '', content: '', category: 'auto', sendEmail: false });
+      setShowForm(false);
+      clearAll();
+      logAnnouncement('Announcement Published', null, finalTitle, { details: `Published announcement: ${finalTitle}` });
+      await load();
+      toast.success(
+        form.sendEmail
+          ? 'Announcement published! Emailing subscribers in the background — check back shortly for the sent status.'
+          : 'Announcement published!'
+      );
+    } catch(e) {
+      toast.error(e.message || 'Failed to create announcement.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRetryEmail = async (announcement) => {
+    setRetryingId(announcement.id);
+    try {
+      const result = await withTimeout(retryAnnouncementBroadcast(announcement.id));
+      await load();
+      if (result?.state === 'completed') toast.success('Email broadcast completed.');
+      else if (result?.state === 'busy') toast.info('The email broadcast is already being processed.');
+      else toast.info('Retry saved. Any unfinished recipients remain visible in the status.');
+    } catch (e) {
+      toast.error(e.message || 'Email retry failed. The saved recipient states were preserved.');
+    } finally {
+      setRetryingId(null);
+    }
+  };
+
+  /**
+   * Fold a posted comment back into the loaded list.
+   *
+   * Cheaper than reloading and, more to the point, correct: the RPC returns
+   * the array the database now holds, so this is the same value a refetch
+   * would bring back without discarding the rest of the page.
+   */
+  const handleCommentsChange = (id, comments) => {
+    setItems(prev => prev.map(a => (a.id === id ? { ...a, comments } : a)));
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await withTimeout(deleteAnnouncement(deleteTarget.id));
+      logAnnouncement('Announcement Deleted', deleteTarget.id, deleteTarget.title, { details: `Deleted announcement: ${deleteTarget.title}` });
+      setDeleteTarget(null);
+      await load();
+      toast.success('Announcement deleted!');
+    } catch(e) {
+      toast.error(e.message || 'Failed to delete announcement.');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <div className="page-transition">
+      <div className="admin-page-header">
+        <div>
+          <h1 className="admin-page-title"><Megaphone size={24} color="var(--primary)" aria-hidden="true" />Announcements</h1>
+          <p className="admin-page-subtitle">Publish operational updates customers can see in their dashboard.</p>
+        </div>
+        <button type="button" className="btn btn-primary" onClick={()=>{ setShowForm(!showForm); clearAll(); }}><Plus size={16}/> New</button>
+      </div>
+
+      {showForm && (
+        <div className="card animate-scale-in mb-16" style={{ overflow: 'visible' }}><div className="card-body">
+          <div className="form-group mb-16">
+            <label className="form-label inline-flex items-center">
+              Category Tag
+              <InfoTooltip text="Choose an explicit category tag for this announcement, or select Auto-Detect for smart keyword matching." />
+            </label>
+            <CategoryDropdown
+              value={form.category}
+              onChange={val => setForm(p => ({ ...p, category: val }))}
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label inline-flex items-center" htmlFor="announcement-title">
+              Title * (Max 100 characters)
+            </label>
+            <input id="announcement-title" className={`form-input ${invalidClass('title', errors)}`} value={form.title} onChange={e=>{setForm(p=>({...p,title:e.target.value})); clearError('title');}} maxLength={100} required {...fieldAttrs('title', errors)} />
+            <FieldError name="title" errors={errors} />
+          </div>
+          <div className="form-group">
+            <label className="form-label" htmlFor="announcement-content">Content * (Max 1500 characters)</label>
+            <textarea id="announcement-content" className={`form-textarea ${invalidClass('content', errors)}`} value={form.content} onChange={e=>{setForm(p=>({...p,content:e.target.value})); clearError('content');}} maxLength={1500} required {...fieldAttrs('content', errors)} />
+            <FieldError name="content" errors={errors} />
+          </div>
+          <div className="form-group">
+            <label className="flex items-center gap-8" htmlFor="announcement-send-email" style={{ cursor: 'pointer' }}>
+              <input
+                id="announcement-send-email"
+                type="checkbox"
+                checked={form.sendEmail}
+                onChange={e => setForm(p => ({ ...p, sendEmail: e.target.checked }))}
+              />
+              Send via Email to all subscribers
+            </label>
+            <p className="text-xs text-secondary mt-4">
+              Emails everyone subscribed to Email Updates — from the public form, their Profile, or an admin-confirmed agreement on a contact inquiry. In-app and push notifications always go out regardless of this setting.
+            </p>
+          </div>
+          <div className="admin-form-actions">
+            <button type="button" className="btn btn-primary" onClick={handleCreate} disabled={saving}>{saving?<Loader size={16} className="animate-spin"/>:'Publish'}</button>
+            <button type="button" className="btn btn-ghost" onClick={()=>{ setShowForm(false); clearAll(); }}>Cancel</button>
+          </div>
+        </div></div>
+      )}
+
+      {loading ? (
+        <CenteredSpinner />
+      ) : error ? (
+        <div className="card text-center" style={{ padding: 40, color: 'var(--error-text)' }}>
+          <h3>Error</h3><p>{error}</p>
+          <button type="button" className="btn btn-primary mt-md" onClick={load}>Retry</button>
+        </div>
+      ) : items.length === 0 ? (
+        <EmptyState icon={Megaphone} title="No announcements yet" description="Create your first announcement to keep customers informed." actionLabel="Create Announcement" onAction={() => setShowForm(true)} />
+      ) : (
+        items.map((a, i) => {
+          const cat = getAnnouncementCategoryInfo(a);
+          const CatIcon = cat.icon;
+          const emailJob = Array.isArray(a.email_broadcast) ? a.email_broadcast[0] : a.email_broadcast;
+          const emailIncomplete = a.send_email && !a.emailed_at;
+          return (
+            <div key={a.id} className="card stagger-item mb-12" style={{animationDelay: `${i * 60}ms`}}>
+              <div className="card-body p-16">
+                <div className="admin-announcement-header">
+                  <div className="flex items-center gap-10 flex-wrap">
+                    <span
+                      className="inline-flex items-center gap-6 px-8 py-2 rounded-full fw-700 text-uppercase"
+                      style={{
+                        fontSize: 'var(--text-12)',
+                        letterSpacing: '0.04em',
+                        background: cat.badgeBg,
+                        color: cat.badgeColor,
+                      }}
+                    >
+                      <CatIcon size={12} />
+                      {cat.label}
+                    </span>
+                    {a.audience === 'email_only' && (
+                      <span className="badge badge-info text-xs">Email only</span>
+                    )}
+                    <h3 className="admin-announcement-title fw-700">{a.title}</h3>
+                  </div>
+                  <button type="button" className="btn btn-ghost btn-icon admin-card-action" onClick={()=>setDeleteTarget(a)} aria-label={`Delete ${a.title}`}><Trash2 size={16}/></button>
+                </div>
+                <p className="text-sm text-secondary mt-6">{a.content}</p>
+                <div className="text-xs text-tertiary mt-8">
+                  by {a.profiles?.name||'Admin'} • {formatPhDate(a.created_at)}
+                  {a.send_email && (
+                    <span className="ml-8">
+                      • {a.emailed_at
+                        ? `Emailed ${formatPhDate(a.emailed_at)}`
+                        : emailJob
+                          ? (() => {
+                              // "Accepted" means the email provider took it, not that it
+                              // reached an inbox — see N-3 in
+                              // docs/audits/POST_DEPLOYMENT_TARGETED_FIX_REPORT.md. `pending` (never
+                              // yet attempted, e.g. beyond the 25-per-invocation cap) was
+                              // previously invisible here, which could read as "basically
+                              // done" on a large list that was actually mostly untouched.
+                              const total = emailJob.total_recipients || 0;
+                              const accepted = emailJob.accepted_count || 0;
+                              const skipped = emailJob.skipped_count || 0;
+                              const retryable = emailJob.retryable_count || 0;
+                              const review = (emailJob.failed_count || 0) + (emailJob.needs_review_count || 0);
+                              const pending = Math.max(0, total - accepted - skipped - retryable - review);
+                              return `Email ${emailJob.status}: ${accepted} accepted by provider, `
+                                + `${pending} pending, ${retryable} retry needed, ${review} need review`
+                                + (skipped ? `, ${skipped} skipped` : '')
+                                + ` (of ${total})`;
+                            })()
+                          : 'Email queued'}
+                    </span>
+                  )}
+                </div>
+                {emailIncomplete && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm mt-8"
+                    disabled={retryingId === a.id}
+                    onClick={() => handleRetryEmail(a)}
+                  >
+                    {retryingId === a.id && <Loader size={14} className="animate-spin" />}
+                    Retry unfinished emails
+                  </button>
+                )}
+                <AnnouncementComments
+                  announcementId={a.id}
+                  comments={a.comments}
+                  onCommentsChange={comments => handleCommentsChange(a.id, comments)}
+                />
+              </div>
+            </div>
+          );
+        })
+      )}
+
+      <ConfirmModal
+        isOpen={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleDelete}
+        title="Delete Announcement"
+        message="Are you sure you want to delete this announcement? This action cannot be undone."
+        confirmLabel="Delete"
+        cancelLabel="Keep"
+        variant="danger"
+        loading={deleting}
+      />
+    </div>
+  );
+};
+export default AnnouncementsPage;

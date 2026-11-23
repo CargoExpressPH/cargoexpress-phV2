@@ -1,0 +1,244 @@
+import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { getTrips } from '../../lib/database';
+import { X, Truck, Loader, MapPin, Edit3, AlertTriangle } from 'lucide-react';
+import FocusTrap from './FocusTrap';
+import { tripCapacityState, tripStatusLabel } from '../../constants/status';
+import useScrollLock from '../../hooks/useScrollLock';
+import { formatPhDate } from '../../utils/datetime';
+
+/**
+ * TripReassignModal — Reassign an order to a different trip, requiring a reason
+ */
+const TripReassignModal = ({ order, onClose, onReassign }) => {
+  useScrollLock(true); // mounted only while open
+
+  const [trips, setTrips] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedTrip, setSelectedTrip] = useState(null);
+  const [reason, setReason] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  const handleSafeClose = () => {
+    if (!saving) {
+      if (showConfirm) setShowConfirm(false);
+      else onClose();
+    }
+  };
+
+  useEffect(() => {
+    loadTrips();
+  }, []);
+
+  const loadTrips = async () => {
+    try {
+      const data = await getTrips('active');
+      // Filter trips matching this order's route, excluding the current trip
+      const matching = (data || []).filter(t =>
+        t.origin === order.origin && 
+        t.destination === order.destination &&
+        t.id !== order.trip_id
+      );
+      setTrips(matching);
+    } catch (err) {
+      // Trip loading failed silently
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleConfirmPrompt = () => {
+    if (!selectedTrip || !reason.trim()) return;
+    setShowConfirm(true);
+  };
+
+  const handleAssign = async () => {
+    if (!selectedTrip || !reason.trim()) return;
+    setSaving(true);
+    try {
+      await onReassign(selectedTrip.id, reason.trim());
+    } catch (err) {
+      // Error handled by parent
+      setShowConfirm(false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Escape steps back one level: from the confirm step to the form, then out.
+  // Ignored mid-save so a reassignment in flight can't be abandoned.
+  useEffect(() => {
+    const handleEscape = (e) => {
+      if (e.key !== 'Escape' || saving) return;
+      handleSafeClose();
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [showConfirm, saving, onClose]);
+
+  if (showConfirm) {
+    return createPortal(
+      <FocusTrap active>
+        <div className="modal-overlay" onClick={handleSafeClose} role="dialog" aria-modal="true" aria-labelledby="confirm-reassign-title">
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 400 }}>
+            <div className="modal-header">
+              <h3 id="confirm-reassign-title"><AlertTriangle size={18} className="inline mr-8 text-warning" /> Confirm Reassignment</h3>
+              <button className="btn-icon btn-ghost" onClick={() => setShowConfirm(false)} disabled={saving} aria-label="Back to reassignment form"><X size={20} /></button>
+            </div>
+            <div className="modal-body text-center">
+              <p className="mb-16">Are you sure you want to change the trip assignment?</p>
+              <div className="text-sm text-secondary bg-surface p-12 br-8 mb-20 text-left">
+                <strong>New Trip:</strong> {selectedTrip?.trip_number}<br />
+                <strong>Reason:</strong> {reason.trim()}
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-outline" onClick={() => setShowConfirm(false)} disabled={saving}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleAssign} disabled={saving}>
+                {saving ? <Loader size={16} className="animate-spin" /> : 'Confirm & Reassign'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </FocusTrap>,
+      document.body
+    );
+  }
+
+  return createPortal(
+    <FocusTrap active>
+    <div className="modal-overlay" onClick={handleSafeClose} role="dialog" aria-modal="true" aria-labelledby="trip-reassign-title">
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
+        <div className="modal-header">
+          <h3 id="trip-reassign-title"><Edit3 size={18} className="inline mr-8" />Change Assigned Trip</h3>
+          <button className="btn-icon btn-ghost" onClick={handleSafeClose} disabled={saving} aria-label="Close modal"><X size={20} /></button>
+        </div>
+
+        <div className="modal-body">
+          <div className="text-secondary mb-16 bg-surface br-8" style={{padding: 12,
+            fontSize: 'var(--text-13)'
+          }}>
+            <MapPin size={14} className="inline mr-6" />
+            Route: <strong>{order.origin} → {order.destination}</strong><br />
+            <div className="mt-4">
+              Current Trip: <strong>{order.trips?.trip_number || 'None'}</strong>
+            </div>
+          </div>
+
+          <div className="form-group mb-16">
+            <label className="form-label required" htmlFor="trip-reassign-reason">Reason for Change</label>
+            <textarea
+              id="trip-reassign-reason"
+              className="form-control"
+              placeholder="e.g., Customer requested later departure, Capacity adjustment"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              rows={2}
+              required
+            />
+          </div>
+
+          <label className="form-label required">Select New Trip</label>
+          {loading ? (
+            <div className="text-center" style={{ padding: 30 }}>
+              <Loader size={24} className="animate-spin mx-auto" />
+            </div>
+          ) : trips.length === 0 ? (
+            <div className="text-center text-tertiary" style={{ padding: 30 }}>
+              <Truck size={40} style={{ opacity: 0.3, margin: '0 auto 12px' }} />
+              <p>No other active trips for this route</p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-8" style={{ maxHeight: '300px', overflowY: 'auto' }}>
+              {trips.map(trip => {
+                const isSelected = selectedTrip?.id === trip.id;
+                const capPct = trip.capacity > 0 ? (trip.current_weight / trip.capacity) * 100 : 0;
+                const orderWeight = parseFloat(order.actual_weight || 0);
+                // Same ceiling as the assign modal. Reassignment moves weight
+                // onto a trip exactly like a first assignment does, so a full
+                // trip has to refuse it here too — otherwise "move it to
+                // another trip" is a way around the limit.
+                const cap = tripCapacityState(trip, trip.current_weight || 0, orderWeight);
+                const exceedsCapacity = cap.wouldExceed || cap.isFull;
+                const overloadWeight = cap.overBy;
+
+                return (
+                  <button
+                    type="button"
+                    key={trip.id}
+                    onClick={() => { if (exceedsCapacity) return; setSelectedTrip(trip); }}
+                    disabled={exceedsCapacity}
+                    aria-pressed={isSelected}
+                    aria-label={
+                      `Select trip ${trip.trip_number}`
+                      + (exceedsCapacity ? `. Unavailable: at or over the ${cap.max} kilogram maximum.` : '')
+                    }
+                    className={`block w-full text-left ${exceedsCapacity ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+                    style={{padding: 14, borderRadius: 'var(--radius-sm)', border: `2px solid ${isSelected ? 'var(--primary)' : 'var(--border)'}`,
+                      background: isSelected ? 'var(--primary-glow)' : 'var(--surface)',
+                      color: 'inherit',
+                      font: 'inherit',
+                      transition: 'all 0.2s',
+                      opacity: exceedsCapacity ? 0.6 : 1
+                    }}
+                  >
+                    <div className="flex items-center justify-between mb-4">
+                      <strong className="text-sm">{trip.trip_number}</strong>
+                      <span className="text-xs font-bold text-uppercase" style={{
+                        color: trip.status === 'scheduled' ? 'var(--primary)' : 'var(--warning)',
+                        letterSpacing: '0.05em'
+                      }}>
+                        {tripStatusLabel(trip.status)}
+                      </span>
+                    </div>
+                    
+                    <div className="flex items-center justify-between text-xs text-secondary mt-8">
+                      {/* Date-only: trip scheduling has no time-of-day component. PH-anchored, not the viewer's local zone. */}
+                      <span>{formatPhDate(trip.departure_date, { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+                      <div className="flex items-center gap-6">
+                        <span style={{ color: exceedsCapacity ? 'var(--error-text)' : 'inherit' }}>
+                          {(trip.current_weight || 0).toFixed(1)} / {trip.capacity || '∞'} kg
+                          {cap.hasLimit && <> (max {cap.max})</>}
+                        </span>
+                        <div className="w-40 h-4" style={{background: 'var(--border)', borderRadius: 'var(--radius-full)', overflow: 'hidden'}}>
+                          <div className="h-full" style={{background: exceedsCapacity ? 'var(--error)' : capPct > 80 ? 'var(--warning)' : 'var(--success)',
+                            width: `${Math.min(100, capPct)}%`
+                          }} />
+                        </div>
+                      </div>
+                    </div>
+
+                    {exceedsCapacity && (
+                      <div className="text-xs mt-6 flex items-center gap-4" style={{ color: 'var(--error-text)' }}>
+                        <AlertTriangle size={12} aria-hidden="true" />
+                        {cap.isFull
+                          ? `Full at the ${cap.max} kg maximum`
+                          : `Would exceed the ${cap.max} kg maximum by ${overloadWeight.toFixed(1)} kg`}
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="modal-footer">
+          <button className="btn btn-outline" onClick={handleSafeClose} disabled={saving}>Cancel</button>
+          <button 
+            className="btn btn-primary" 
+            onClick={handleConfirmPrompt} 
+            disabled={!selectedTrip || !reason.trim() || saving}
+          >
+            {saving ? <Loader size={16} className="animate-spin" /> : 'Save Changes'}
+          </button>
+        </div>
+      </div>
+    </div>
+    </FocusTrap>,
+    document.body
+  );
+};
+
+export default TripReassignModal;

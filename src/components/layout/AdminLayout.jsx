@@ -1,0 +1,309 @@
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { Outlet } from 'react-router-dom';
+import Sidebar from './Sidebar';
+import ErrorBoundary from '../ui/ErrorBoundary';
+import PageTransition from '../ui/PageTransition';
+import CommandPalette from '../ui/CommandPalette';
+import FocusTrap from '../ui/FocusTrap';
+import AdminNotificationCenter from '../ui/AdminNotificationCenter';
+import { Menu, Search, Bell, ScanQrCode } from 'lucide-react';
+import BrandLockup from '../ui/BrandLogo';
+import ThemeToggle from '../ui/ThemeToggle';
+import { useAuth } from '../../contexts/AuthContext';
+import { supabase } from '../../lib/supabase';
+import { getUnreadNotificationCount } from '../../lib/database';
+import { NOTIFICATIONS_CHANGED_EVENT } from '../../lib/notification-events';
+import { usePushNotification } from '../../hooks/usePushNotification';
+import { useToast } from '../../hooks/useToast';
+
+const COLLAPSE_KEY = 'sidebar_collapsed';
+const DRAWER_QUERY = '(max-width: 1024px)';
+const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
+
+const AdminLayout = () => {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try { return localStorage.getItem(COLLAPSE_KEY) === '1'; } catch { return false; }
+  });
+  const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  // The package QR scanner (and its decoder) is fetched on first tap, so the
+  // camera code never weighs on admin pages that don't use it.
+  const [Scanner, setScanner] = useState(null);
+  const [scannerLoading, setScannerLoading] = useState(false);
+  const bellRef = useRef(null);
+  const menuButtonRef = useRef(null);
+  const { user, userProfile } = useAuth();
+  const toast = useToast();
+
+  const handleForegroundPush = useCallback((message) => {
+    toast.info(message.body || message.title);
+  }, [toast]);
+  usePushNotification(user?.id, handleForegroundPush);
+
+  const refreshUnreadCount = useCallback(() => {
+    if (!user) return;
+    getUnreadNotificationCount(user.id)
+      .then(count => setUnreadCount(count))
+      .catch(() => {});
+  }, [user]);
+
+  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+
+  const toggleCollapse = useCallback(() => {
+    setSidebarCollapsed(prev => {
+      const next = !prev;
+      try { localStorage.setItem(COLLAPSE_KEY, next ? '1' : '0'); } catch { /* localStorage may be blocked in private mode */ }
+      return next;
+    });
+  }, []);
+
+  // ── Fetch unread count + real-time subscription ────────────────────────────
+  useEffect(() => {
+    if (!user) return;
+
+    refreshUnreadCount();
+
+    const channel = supabase.channel(`admin_notif_badge_${user.id}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'notifications',
+        filter: `user_id=eq.${user.id}`,
+      }, () => {
+        setUnreadCount(prev => prev + 1);
+      })
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'notifications',
+        filter: `user_id=eq.${user.id}`,
+      }, (payload) => {
+        if (payload.new.is_read && !payload.old.is_read) {
+          setUnreadCount(prev => Math.max(0, prev - 1));
+        }
+      })
+      .on('postgres_changes', {
+        event: 'DELETE',
+        schema: 'public',
+        table: 'notifications',
+        filter: `user_id=eq.${user.id}`,
+      }, () => {
+        // Re-fetch on delete to get accurate count
+        getUnreadNotificationCount(user.id)
+          .then(count => setUnreadCount(count))
+          .catch(() => {});
+      })
+      .subscribe();
+
+    window.addEventListener(NOTIFICATIONS_CHANGED_EVENT, refreshUnreadCount);
+
+    return () => {
+      window.removeEventListener(NOTIFICATIONS_CHANGED_EVENT, refreshUnreadCount);
+      supabase.removeChannel(channel);
+    };
+  }, [user, refreshUnreadCount]);
+
+  // ── Re-sync count when dropdown closes ─────────────────────────────────────
+  useEffect(() => {
+    if (!notifOpen && user) {
+      refreshUnreadCount();
+    }
+  }, [notifOpen, user, refreshUnreadCount]);
+
+  // ── FCM push notification registration ─────────────────────────────────────
+  // Native Web Push reaches the service worker; its foreground message is
+  // separate from Firebase's onMessage channel handled by the hook above.
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+
+    const handler = (event) => {
+      if (event.data?.type === 'PUSH_NOTIFICATION') {
+        toast.info(event.data.body || event.data.title);
+      }
+    };
+
+    navigator.serviceWorker.addEventListener('message', handler);
+    return () => navigator.serviceWorker.removeEventListener('message', handler);
+  }, [toast]);
+
+  const handleNotificationBellClick = useCallback(() => {
+    setNotifOpen(prev => !prev);
+  }, []);
+
+  const openScanner = useCallback(() => {
+    if (scannerLoading) return;
+    setNotifOpen(false);
+    setScannerLoading(true);
+    import('../ui/QrScannerModal')
+      .then((module) => setScanner(() => module.default))
+      .catch(() => {
+        toast.error(typeof navigator !== 'undefined' && navigator.onLine === false
+          ? 'The scanner is not available offline yet. Reconnect and try again.'
+          : 'The scanner could not load. Please try again.');
+      })
+      .finally(() => setScannerLoading(false));
+  }, [scannerLoading, toast]);
+
+  const closeScanner = useCallback(() => setScanner(null), []);
+
+  useEffect(() => {
+    const drawerQuery = window.matchMedia(DRAWER_QUERY);
+    const handleViewportChange = () => {
+      if (!drawerQuery.matches) {
+        setSidebarOpen(false);
+      }
+    };
+
+    handleViewportChange();
+
+    if (drawerQuery.addEventListener) {
+      drawerQuery.addEventListener('change', handleViewportChange);
+      return () => drawerQuery.removeEventListener('change', handleViewportChange);
+    }
+
+    drawerQuery.addListener(handleViewportChange);
+    return () => drawerQuery.removeListener(handleViewportChange);
+  }, []);
+
+  useEffect(() => {
+    if (!sidebarOpen) return undefined;
+
+    const drawerQuery = window.matchMedia(DRAWER_QUERY);
+    if (!drawerQuery.matches) return undefined;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setSidebarOpen(false);
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handleKeyDown);
+      if (menuButtonRef.current) menuButtonRef.current.focus();
+    };
+  }, [sidebarOpen]);
+
+  // Global Ctrl+K / Cmd+K shortcut
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        setCmdPaletteOpen(prev => !prev);
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  return (
+    <div className={`app-layout${sidebarCollapsed ? ' sidebar-collapsed' : ''}${sidebarOpen ? ' sidebar-drawer-open' : ''}`}>
+      <a href="#admin-main-content" className="skip-link">Skip to main content</a>
+      <FocusTrap active={sidebarOpen}>
+        <Sidebar
+          isOpen={sidebarOpen}
+          onClose={closeSidebar}
+          isCollapsed={sidebarCollapsed}
+          onToggleCollapse={toggleCollapse}
+        />
+      </FocusTrap>
+      <div className="main-content" aria-hidden={sidebarOpen || undefined} inert={sidebarOpen || undefined}>
+        <header className="topbar">
+          <div className="flex items-center gap-12">
+            <button
+              className="btn-icon btn-ghost mobile-menu-toggle"
+              type="button"
+              ref={menuButtonRef}
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Open admin navigation"
+              aria-controls="admin-sidebar"
+              aria-expanded={sidebarOpen}
+            >
+              <Menu size={20} aria-hidden="true" />
+            </button>
+            <div className="topbar-title">
+              <BrandLockup size={34} className="topbar-brand" />
+            </div>
+          </div>
+          <div className="topbar-actions">
+            <ThemeToggle />
+            {/* Command Palette Trigger */}
+            <button
+              className="btn-icon btn-ghost gap-6 text-tertiary topbar-command-btn"
+              type="button"
+              onClick={() => setCmdPaletteOpen(true)}
+              title={IS_MAC ? 'Search (Cmd+K)' : 'Search (Ctrl+K)'}
+              aria-label="Open command palette"
+              style={{ fontSize: 'var(--text-13)' }}
+            >
+              <Search size={17} aria-hidden="true" />
+              <kbd className="topbar-command-kbd">
+                {IS_MAC ? 'Cmd K' : 'Ctrl K'}
+              </kbd>
+            </button>
+
+            {/* ── Package QR scanner ── */}
+            <button
+              className="btn-icon btn-ghost topbar-scan-btn"
+              type="button"
+              onClick={openScanner}
+              aria-haspopup="dialog"
+              aria-busy={scannerLoading || undefined}
+              aria-label="Scan package QR code"
+              title="Scan package QR code"
+            >
+              <ScanQrCode size={19} aria-hidden="true" />
+            </button>
+
+            {/* ── Notification Bell ── */}
+            <div className="relative" style={{ position: 'relative' }}>
+              <button
+                ref={bellRef}
+                className={`admin-notif-bell${unreadCount > 0 ? ' has-unread' : ''}${notifOpen ? ' active' : ''}`}
+                type="button"
+                onClick={handleNotificationBellClick}
+                aria-haspopup="dialog"
+                aria-expanded={notifOpen}
+                aria-label={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ''}`}
+                title="Notifications"
+              >
+                <Bell size={20} aria-hidden="true" />
+                {unreadCount > 0 && (
+                  <span className="admin-notif-badge" aria-live="polite" aria-atomic="true">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                    <span className="sr-only">unread notifications</span>
+                  </span>
+                )}
+                {unreadCount > 0 && <span className="admin-notif-ring" />}
+              </button>
+              <AdminNotificationCenter
+                isOpen={notifOpen}
+                onClose={() => setNotifOpen(false)}
+                anchorRef={bellRef}
+              />
+            </div>
+          </div>
+        </header>
+        <PageTransition as="main" id="admin-main-content" className="page-content" tabIndex={-1}>
+          <ErrorBoundary>
+            <Outlet />
+          </ErrorBoundary>
+        </PageTransition>
+      </div>
+
+      {/* Command Palette */}
+      <CommandPalette isOpen={cmdPaletteOpen} onClose={() => setCmdPaletteOpen(false)} />
+
+      {Scanner && <Scanner onClose={closeScanner} />}
+    </div>
+  );
+};
+
+export default AdminLayout;

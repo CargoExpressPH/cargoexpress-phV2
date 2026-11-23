@@ -1,0 +1,1419 @@
+/* --- BUTTONS ----------------------------------------------------------- */
+
+.btn { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; gap: 8px; padding: 10px 20px; border-radius: var(--radius-sm); font-weight: 600; font-size: var(--text-14); transition: var(--transition); border: none; cursor: pointer; white-space: nowrap; position: relative; overflow: hidden; letter-spacing: 0; }
+.btn:active { transform: scale(0.97); }
+.btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.btn-primary {
+  background: var(--primary-fill);
+  color: #FFFFFF;
+  box-shadow: var(--shadow-primary);
+}
+[data-theme="dark"] .btn-primary { color: #0F172A; font-weight: 700; }
+.btn-primary:hover {
+  background: var(--primary-text-strong);
+  box-shadow: var(--shadow-primary-lg);
+  transform: translateY(-1px);
+  filter: brightness(1.08);
+}
+
+.btn-secondary { background: var(--accent); color: white; box-shadow: var(--shadow-sm); }
+.btn-secondary:hover { background: var(--accent-dark); box-shadow: var(--shadow-md); transform: translateY(-1px); }
+
+.btn-outline {
+  background: transparent; border: 1.5px solid var(--border); color: var(--text);
+}
+.btn-outline:hover {
+  border-color: var(--primary); color: var(--primary-dark);
+  background: var(--primary-bg); box-shadow: var(--shadow-sm);
+}
+
+.btn-ghost { background: transparent; color: var(--text-secondary); }
+.btn-ghost:hover { background: var(--bg-secondary); color: var(--text); }
+
+.btn-danger { background: #B91C1C; color: white; box-shadow: 0 2px 8px rgba(185,28,28,0.25); }
+.btn-danger:hover { background: #991B1B; box-shadow: 0 4px 16px rgba(153,27,27,0.35); transform: translateY(-1px); }
+
+/* Copy-to-clipboard icon button (CopyButton.jsx), e.g. beside a tracking
+   number. Quiet outline at rest; green with a check for two seconds after a
+   successful copy (the toast says it in words). A fixed square, so the
+   feedback never reflows the heading beside it. */
+.copy-btn {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: var(--text-12);
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+.copy-btn:hover {
+  border-color: var(--border-hover);
+  background: var(--bg-secondary);
+  color: var(--text);
+}
+.copy-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.copy-btn.is-copied {
+  border-color: color-mix(in srgb, var(--primary) 45%, transparent);
+  background: var(--primary-bg);
+  color: var(--primary-text-strong);
+}
+@media (pointer: coarse) {
+  .copy-btn {
+    width: 40px;
+    height: 40px;
+  }
+}
+
+/* Tracking number heading + its copy and share buttons. The buttons move to
+   the next line as a pair when the row is too narrow, so the number is never
+   split to make room for them. */
+.order-tracking-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  min-width: 0;
+}
+.order-tracking-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+.order-tracking-title > h1 {
+  min-width: 0;
+  margin: 0;
+}
+
+/* Table rows that open a page when clicked anywhere (utils/rowLink.js). The
+   row's own link stays the keyboard/screen-reader path. */
+tr.row-link {
+  cursor: pointer;
+}
+
+/* Secondary destructive action (cancel a booking/trip). Deliberately quieter
+   than .btn-danger so it never outranks the page's primary action; the
+   confirmation modal carries the solid red. --error-text-strong keeps AA on
+   both white cards and the tinted page background, in both themes. */
+.btn-danger-outline {
+  background: transparent;
+  border: 1.5px solid color-mix(in srgb, var(--error-text-strong) 40%, transparent);
+  color: var(--error-text-strong);
+}
+.btn-danger-outline:hover {
+  background: var(--error-bg);
+  border-color: var(--error-text-strong);
+}
+
+.btn-success { background: #047857; color: white; box-shadow: 0 2px 8px rgba(4,120,87,0.25); }
+.btn-success:hover { background: #065F46; transform: translateY(-1px); }
+
+.btn-alert-action {
+  background: var(--surface);
+  color: var(--success-text);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+}
+.btn-alert-action:hover {
+  background: var(--bg-secondary);
+  border-color: var(--border-hover);
+  transform: translateY(-1px);
+}
+
+.btn-sm {
+  min-height: 34px;
+  padding: 8px 14px;
+  font-size: var(--text-13);
+  border-radius: var(--radius-xs);
+}
+.btn-lg { padding: 14px 28px; font-size: var(--text-16); border-radius: var(--radius-md); }
+.btn-icon {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.btn-icon.btn-sm {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+}
+.btn-block { width: 100%; }
+
+.btn:disabled {
+  opacity: 0.5; cursor: not-allowed;
+  transform: none !important; filter: none !important;
+  box-shadow: none !important;
+}
+
+/* --- PAYMONGO WAITING CARD (responsive) -------------------------------- */
+.paymongo-waiting-card {
+  background: var(--info-bg);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  border: 1px solid var(--info);
+  container-type: inline-size;
+  container-name: paymongo;
+}
+.paymongo-qr-wrap {
+  background: white;
+  padding: 10px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: min(180px, 44vw);
+  max-width: 100%;
+  box-shadow: 0 1px 6px rgba(15,23,42,0.06);
+}
+.paymongo-qr-wrap svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.paymongo-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+.paymongo-actions-3 {
+  grid-template-columns: repeat(auto-fit, minmax(min(110px, 100%), 1fr));
+}
+.paymongo-check-btn {
+  margin-top: 12px;
+}
+.paymongo-waiting-status {
+  margin-top: 12px;
+  margin-bottom: 12px;
+}
+.paymongo-cancel-btn {
+  margin-top: 4px;
+}
+@container paymongo (max-width: 340px) {
+  .paymongo-actions,
+  .paymongo-actions-3 {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 480px) {
+  .paymongo-waiting-card {
+    padding: 12px;
+  }
+  .paymongo-waiting-card .btn {
+    min-height: 42px;
+    font-size: var(--text-13);
+    white-space: normal;
+    text-align: center;
+    line-height: 1.25;
+  }
+  .paymongo-qr-wrap {
+    width: min(160px, 52vw);
+    padding: 8px;
+  }
+}
+@media (max-width: 360px) {
+  .paymongo-waiting-card {
+    padding: 10px;
+  }
+  .paymongo-actions,
+  .paymongo-actions-3 {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+}
+
+/* Button loading spinner */
+.btn .animate-spin { animation: spin 0.8s linear infinite; }
+
+/* --- CARDS ------------------------------------------------------------- */
+
+.card {
+  background: var(--surface);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-light);
+  box-shadow: var(--shadow-sm);
+  transition: var(--transition);
+  overflow: hidden;
+  position: relative;
+  container-type: inline-size;
+  container-name: card;
+}
+.card:hover {
+  box-shadow: var(--shadow-md);
+  border-color: var(--border);
+}
+
+.card-interactive { cursor: pointer; transition: var(--transition-spring); }
+.card-interactive:active { transform: translateY(0); }
+
+.card-body { padding: var(--space-xl); }
+
+.card-header { padding: var(--space-md) var(--space-xl); border-bottom: 1px solid var(--border-light); display: flex; align-items: center; justify-content: space-between; background: var(--surface); background: color-mix(in srgb, var(--surface) 88%, var(--bg) 12%); }
+.card-header h3 {
+  font-size: var(--text-16); font-weight: 700;
+  display: flex; align-items: center; gap: var(--space-xs);
+}
+.card-footer {
+  padding: var(--space-md) var(--space-xl);
+  border-top: 1px solid var(--border-light);
+  background: var(--bg);
+}
+
+/* --- CONTAINER QUERIES (Modular element-level responsiveness) --- */
+.modal-body {
+  container-type: inline-size;
+  container-name: card;
+}
+
+@container card (max-width: 380px) {
+  .card-header {
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+  }
+}
+
+/* container-type creates a stacking context, which would trap the
+   dropdown's z-index inside the card and let later siblings paint over it.
+   SUPPORT BOUNDARY: :has() is Baseline 2023. On older engines these escapes
+   don't apply and the dropdown may clip inside such cards — accepted trade-off
+   rather than shipping a JS resize observer. */
+.card:has(.custom-select-menu),
+.modal-body:has(.custom-select-menu),
+.sidebar-widget:has(.custom-select-menu) {
+  container-type: normal;
+}
+
+/* --- FORM INPUTS ------------------------------------------------------- */
+
+.form-group { margin-bottom: var(--space-lg); }
+
+.form-label {
+  display: flex; align-items: center; gap: var(--space-xxs);
+  font-size: var(--text-13); font-weight: 600;
+  color: var(--text-secondary); margin-bottom: var(--space-xs);
+}
+.form-label .required { color: var(--error-text); font-size: var(--text-12); }
+
+.form-input,
+.form-select,
+.form-textarea { width: 100%; min-height: 44px; padding: 10px 14px; border: 1.5px solid var(--border); border-radius: var(--radius-sm); font-size: var(--text-16); background: var(--surface); background: color-mix(in srgb, var(--surface) 94%, var(--bg) 6%); transition: border-color 0.2s ease, box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1), background 0.2s ease; color: var(--text); }
+
+.form-control { width: 100%; min-height: 44px; padding: 10px 14px; border: 1.5px solid var(--border); border-radius: var(--radius-sm); font-size: var(--text-16); background: var(--surface); transition: border-color 0.2s ease, box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1), background 0.2s ease; color: var(--text); }
+.form-input:hover, .form-select:hover, .form-textarea:hover, .form-control:hover {
+  border-color: var(--border-hover);
+}
+.form-input:focus,
+.form-select:focus,
+.form-textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-glow); background: var(--surface-raised); }
+.form-control:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-glow), 0 1px 3px rgba(22, 163, 74, 0.1); background: var(--surface-raised); }
+.form-input::placeholder { color: var(--text-tertiary); transition: opacity 0.2s ease; }
+.form-input:focus::placeholder { opacity: 0.5; }
+.form-select {
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23607085' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  padding-right: 36px;
+}
+
+/* CustomSelect renders its own <ChevronDown> inside the trigger. When callers
+   also pass `form-select` (11 of them do: booking, register, profile, feedback,
+   order detail) the background chevron above painted a SECOND arrow next to it.
+   Suppress it whenever the class lands on a CustomSelect trigger — the higher
+   specificity here wins regardless of source order. */
+.custom-select-trigger.form-select {
+  background-image: none;
+  padding-right: 14px;
+}
+
+/* --- DATE & TIME INPUT ENHANCEMENTS ------------------------------------ */
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"] {
+  cursor: pointer;
+  position: relative;
+  font-family: inherit;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--radius-xs);
+  transition: transform 0.2s ease, opacity 0.2s ease;
+  opacity: 0.75;
+}
+
+input[type="date"]:hover::-webkit-calendar-picker-indicator,
+input[type="time"]:hover::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]:hover::-webkit-calendar-picker-indicator {
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+[data-theme="dark"] input[type="date"]::-webkit-calendar-picker-indicator,
+[data-theme="dark"] input[type="time"]::-webkit-calendar-picker-indicator,
+[data-theme="dark"] input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.9) hue-rotate(180deg);
+}
+
+.custom-select-root {
+  position: relative;
+  width: 100%;
+}
+
+.custom-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  text-align: left;
+}
+
+.custom-select-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.custom-select-value.placeholder {
+  color: var(--text-tertiary);
+}
+
+.custom-select-icon {
+  flex-shrink: 0;
+  transition: transform 0.18s ease;
+}
+
+.custom-select-trigger[aria-expanded="true"] .custom-select-icon {
+  transform: rotate(180deg);
+}
+
+.custom-select-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: var(--z-dropdown);
+  max-height: min(320px, 52vh);
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-lg);
+}
+
+.custom-select-menu.open-up {
+  top: auto;
+  bottom: calc(100% + 8px);
+}
+
+.custom-select-search {
+  position: sticky;
+  top: -6px;
+  z-index: 1;
+  margin: -6px -6px 6px;
+  padding: 6px 6px 8px;
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--border);
+}
+
+.custom-select-search-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: var(--bg-secondary);
+  color: var(--text);
+  font: inherit;
+}
+
+.custom-select-search-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-bg);
+}
+
+.custom-select-empty {
+  padding: 10px 12px;
+  color: var(--text-tertiary);
+  font-size: 0.9em;
+  text-align: center;
+}
+
+.custom-select-option {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.custom-select-option:hover,
+.custom-select-option:focus-visible,
+.custom-select-option.highlighted {
+  background: var(--bg-secondary);
+}
+.custom-select-option:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.custom-select-option.active {
+  background: var(--primary-bg);
+  color: var(--primary-text);
+  font-weight: 700;
+}
+
+.custom-select-option:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* --- LALAMOVE-STYLE RECENT CONTACTS AUTOCOMPLETE DROPDOWN -----------------
+   Exact clean layout matching Lalamove (web.lalamove.com):
+   - Clean trigger input box showing selected contact or placeholder
+   - Dropdown list showing up to 5 recent contacts
+   - Orange clock icon (🕒) on the left
+   - Line 1: Address (truncated neatly)
+   - Line 2: "Name | Phone" in secondary text
+   - Smooth hover, thin dividers, and custom slim scrollbar
+   --------------------------------------------------------------------------- */
+.lalamove-recent-group {
+  margin-bottom: 12px;
+}
+
+.lalamove-trigger-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.lalamove-trigger-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--surface, #ffffff);
+  border: 1.5px solid var(--border, #cbd5e1);
+  border-radius: var(--radius-md, 10px);
+  color: var(--text, #1e293b);
+  font-size: var(--text-13, 13px);
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+}
+
+.lalamove-trigger-btn:hover {
+  border-color: #f97316;
+  background: var(--bg-secondary, #f8fafc);
+}
+
+.lalamove-trigger-btn.is-active {
+  border-color: #f97316;
+  box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.18);
+}
+
+.lalamove-trigger-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.lalamove-clock-orange {
+  color: #f97316; /* Lalamove signature orange clock */
+  flex-shrink: 0;
+}
+
+.lalamove-trigger-text {
+  font-size: var(--text-13, 13px);
+  color: var(--text-secondary, #64748b);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lalamove-trigger-text.is-filled {
+  color: var(--text, #0f172a);
+  font-weight: 600;
+}
+
+.lalamove-trigger-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+.lalamove-trigger-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  color: var(--text-muted, #94a3b8);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.lalamove-trigger-clear:hover {
+  background: var(--error-bg, #fee2e2);
+  color: var(--error, #ef4444);
+}
+
+.lalamove-arrow {
+  color: var(--text-muted, #94a3b8);
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.lalamove-arrow.is-rotated {
+  transform: rotate(180deg);
+}
+
+/* ── The Lalamove Dropdown Popover ─────────────────────────────────────── */
+.lalamove-dropdown-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 999;
+  background: var(--surface, #ffffff);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.12), 0 8px 10px -6px rgba(0, 0, 0, 0.08);
+  max-height: 270px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.lalamove-dropdown-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--border-light, #f1f5f9);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s ease;
+}
+
+.lalamove-dropdown-row:last-child {
+  border-bottom: 0;
+}
+
+.lalamove-dropdown-row:hover,
+.lalamove-dropdown-row:focus-visible {
+  background: #f8fafc;
+  outline: none;
+}
+
+[data-theme="dark"] .lalamove-dropdown-row:hover,
+[data-theme="dark"] .lalamove-dropdown-row:focus-visible {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.lalamove-row-clock {
+  color: #f97316; /* Lalamove clock icon */
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.lalamove-row-content {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.lalamove-row-address {
+  font-size: var(--text-13, 13px);
+  font-weight: 500;
+  color: var(--text, #1e293b);
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lalamove-row-meta {
+  font-size: var(--text-12, 12px);
+  color: var(--text-secondary, #64748b);
+  line-height: 1.3;
+}
+
+/* Custom sleek scrollbar for dropdown */
+.lalamove-dropdown-list::-webkit-scrollbar {
+  width: 6px;
+}
+.lalamove-dropdown-list::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+.lalamove-dropdown-list::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+[data-theme="dark"] .lalamove-dropdown-list {
+  background: var(--surface-card, #1e293b);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+}
+
+[data-theme="dark"] .lalamove-row-address {
+  color: var(--text, #f1f5f9);
+}
+
+.card:has(.custom-select-menu),
+.card:has(.lalamove-dropdown-list),
+.card-body:has(.lalamove-dropdown-list),
+.modal:has(.custom-select-menu),
+.admin-section-card:has(.custom-select-menu),
+.admin-table-card:has(.custom-select-menu),
+/* Register & login panels — prevent clipping of the dropdown popup */
+.login-right-panel:has(.custom-select-menu),
+.login-form-container:has(.custom-select-menu),
+.reg-step-content:has(.custom-select-menu),
+.form-group:has(.custom-select-menu) {
+  overflow: visible;
+}
+
+/* …and lift the whole card while that menu is open.
+   `overflow: visible` above stops the card CLIPPING the dropdown, but it does
+   not stop a later sibling PAINTING OVER it, which is a separate failure with
+   a separate cause.
+
+   Every card carrying `.stagger-item` animates `slideUp` with
+   `animation-fill-mode: both`, so it keeps the final keyframe's
+   `transform: translateY(0)` permanently. A transform other than `none`
+   creates a stacking context — so on a page with two stacked cards, BOTH are
+   stacking contexts at `z-index: auto`, and they paint in DOM order. The
+   dropdown's own `z-index: 100` is sealed inside its card's context and can
+   never rise above the card below it. Measured on the admin Activity Logs
+   page: the open Module menu rendered under the table, with
+   `elementFromPoint` at the menu's own coordinates returning a `<td>`.
+
+   Raising the card is what actually escapes that, and `:has()` scopes it to
+   exactly the moment it is needed — CustomSelect renders the menu only while
+   open, so the card returns to `z-index: auto` the instant it closes.
+
+   `--z-dropdown` (100) deliberately stays below --z-sticky (200), --z-overlay
+   (500) and --z-modal (1000): a card hosting a dropdown must not climb over a
+   sticky header or a dialog. `.card` already sets `position: relative`, so the
+   z-index applies without adding positioning here. */
+.card:has(.custom-select-menu),
+.card:has(.lalamove-dropdown-list) {
+  z-index: var(--z-dropdown);
+}
+
+/* Ensure the dropdown menu always floats above sibling form groups in auth pages */
+.login-right-panel .custom-select-menu,
+.auth-page .custom-select-menu,
+.reg-step-content .custom-select-menu {
+  z-index: 9999;
+}
+
+/* --- DATE PICKER (custom popover replacing native <input type="date">) - */
+
+.date-picker-root {
+  position: relative;
+  width: 100%;
+}
+
+.date-picker-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.date-picker-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.date-picker-value.placeholder {
+  color: var(--text-tertiary);
+}
+
+.date-picker-icon {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+
+.date-picker-trigger[aria-expanded="true"] {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-glow);
+}
+
+.date-picker-trigger[aria-expanded="true"] .date-picker-icon {
+  color: var(--primary);
+}
+
+.date-picker-panel {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 8px);
+  z-index: var(--z-dropdown);
+  width: 280px;
+  max-width: min(280px, calc(100vw - 24px));
+  box-sizing: border-box;
+  padding: 14px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  /* Elevation shadow plus a soft brand-green ring, so the popup reads as
+     this app's own component rather than a generic library default. */
+  box-shadow: var(--shadow-xl), 0 0 0 1px var(--primary-glow);
+  animation: slideDown 0.16s ease;
+}
+
+.date-picker-panel.open-up {
+  top: auto;
+  bottom: calc(100% + 8px);
+}
+
+.date-picker-panel.align-right {
+  left: auto;
+  right: 0;
+}
+
+.date-picker-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.date-picker-nav-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.date-picker-nav-btn:hover {
+  background: var(--primary-bg);
+  color: var(--primary-text);
+}
+
+.date-picker-month-label {
+  font-size: var(--text-14);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.date-picker-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  margin-bottom: 4px;
+}
+
+.date-picker-weekdays span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  font-size: var(--text-12);
+  font-weight: 700;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.date-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.date-picker-day {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  border: none;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text);
+  font-size: var(--text-13);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.date-picker-day:hover:not(:disabled) {
+  background: var(--primary-bg);
+  color: var(--primary-text);
+}
+
+.date-picker-day.outside {
+  color: var(--text-tertiary);
+  opacity: 0.55;
+}
+
+.date-picker-day.today {
+  color: var(--primary-text-strong);
+  font-weight: 700;
+  box-shadow: inset 0 0 0 1.5px var(--primary);
+}
+
+.date-picker-day.selected {
+  background: var(--primary);
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 4px 10px -2px var(--primary-glow);
+}
+
+.date-picker-day.selected.today {
+  box-shadow: 0 4px 10px -2px var(--primary-glow);
+}
+
+.date-picker-day:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.date-picker-footer {
+  display: flex;
+  justify-content: center;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-light);
+}
+
+.date-picker-today-btn {
+  padding: 6px 14px;
+  border: none;
+  border-radius: var(--radius-xs);
+  background: var(--primary-bg);
+  color: var(--primary-text);
+  font-size: var(--text-12);
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+
+.date-picker-today-btn:hover:not(:disabled) {
+  filter: brightness(0.96);
+}
+
+.date-picker-today-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Same clipping/stacking fix CustomSelect needs (see the note above it):
+   let the panel escape its card and rise above sibling stagger-item cards. */
+.card:has(.date-picker-panel),
+.report-custom-range:has(.date-picker-panel) {
+  overflow: visible;
+  z-index: var(--z-dropdown);
+}
+
+/* Validation states
+   `.error` is the legacy spelling of `.field-invalid` (see validation.css).
+   Both are kept so either class marks a control, but they must resolve to the
+   same pixels — two validation looks in one app is the defect this collapses. */
+.form-input.error, .form-select.error, .form-textarea.error {
+  border-color: var(--error);
+  box-shadow: 0 0 0 3px var(--error-glow);
+}
+.form-input.success, .form-select.success {
+  border-color: var(--success);
+  box-shadow: 0 0 0 3px var(--success-glow);
+}
+
+/* Legacy inline-error markup. Styled identically to `.field-error-inline`, and
+   kept only for any `<p class="form-error">` not yet moved to <FieldError/>.
+   New forms use the component; do not reach for this class. */
+.form-error {
+  color: var(--error-text); font-size: var(--text-12); font-weight: 600; margin-top: 4px;
+  display: flex; align-items: center; gap: 4px;
+  animation: slideDown 0.2s ease;
+}
+/* The glyph substitutes for the AlertTriangle icon <FieldError/> renders as a
+   real element. Suppressed when a form-error also carries the component's
+   class, or the warning would appear twice. */
+.form-error:not(.field-error-inline)::before {
+  content: '\26A0';
+  font-size: var(--text-12);
+}
+.form-helper {
+  color: var(--text-tertiary); font-size: var(--text-12); margin-top: 4px;
+}
+.input-with-icon .form-input {
+  padding-left: 40px;
+}
+.input-with-icon .input-icon {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  color: var(--text-tertiary); pointer-events: none;
+  transition: var(--transition-fast);
+}
+.input-with-icon .form-input:focus + .input-icon,
+.input-with-icon .form-input:focus ~ .input-icon {
+  color: var(--primary);
+}
+
+/* --- BADGES ------------------------------------------------------------ */
+
+.badge {
+  display: inline-flex; align-items: center;
+  padding: 4px 10px; gap: 5px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-12); font-weight: 600;
+  border: 1px solid transparent;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+/* Status-specific badges */
+.badge-pending { background: var(--badge-pending-bg); color: var(--badge-pending-color); border-color: var(--badge-pending-border); }
+.badge-assigned { background: var(--badge-assigned-bg); color: var(--badge-assigned-color); border-color: var(--badge-assigned-border); }
+.badge-picked-up { background: var(--badge-pickedup-bg); color: var(--badge-pickedup-color); border-color: var(--badge-pickedup-border); }
+.badge-in-transit { background: var(--badge-intransit-bg); color: var(--badge-intransit-color); border-color: var(--badge-intransit-border); }
+.badge-arrived { background: var(--badge-arrived-bg); color: var(--badge-arrived-color); border-color: var(--badge-arrived-border); }
+.badge-out-delivery { background: var(--badge-outdelivery-bg); color: var(--badge-outdelivery-color); border-color: var(--badge-outdelivery-border); }
+.badge-delivered { background: var(--badge-delivered-bg); color: var(--badge-delivered-color); border-color: var(--badge-delivered-border); }
+.badge-cancelled { background: var(--badge-cancelled-bg); color: var(--badge-cancelled-color); border-color: var(--badge-cancelled-border); }
+
+/* Semantic badges */
+.badge-success { background: var(--success-bg); color: var(--badge-success-color); border-color: var(--badge-success-border); }
+.badge-warning { background: var(--warning-bg); color: var(--badge-warning-color); border-color: var(--badge-warning-border); }
+.badge-error { background: var(--error-bg); color: var(--badge-error-color); border-color: var(--badge-error-border); }
+.badge-info { background: var(--info-bg); color: var(--badge-info-color); border-color: var(--badge-info-border); }
+
+[data-theme="dark"] .badge-pending { background: var(--badge-pending-bg); color: var(--badge-pending-color); border-color: var(--badge-pending-border); }
+[data-theme="dark"] .badge-assigned { background: var(--badge-assigned-bg); color: var(--badge-assigned-color); border-color: var(--badge-assigned-border); }
+[data-theme="dark"] .badge-in-transit { background: var(--badge-intransit-bg); color: var(--badge-intransit-color); border-color: var(--badge-intransit-border); }
+[data-theme="dark"] .badge-picked-up { background: var(--badge-pickedup-bg); color: var(--badge-pickedup-color); border-color: var(--badge-pickedup-border); }
+[data-theme="dark"] .badge-arrived { background: var(--badge-arrived-bg); color: var(--badge-arrived-color); border-color: var(--badge-arrived-border); }
+[data-theme="dark"] .badge-delivered { background: var(--badge-delivered-bg); color: var(--badge-delivered-color); border-color: var(--badge-delivered-border); }
+[data-theme="dark"] .badge-out-delivery { background: var(--badge-outdelivery-bg); color: var(--badge-outdelivery-color); border-color: var(--badge-outdelivery-border); }
+[data-theme="dark"] .badge-cancelled { background: var(--badge-cancelled-bg); color: var(--badge-cancelled-color); border-color: var(--badge-cancelled-border); }
+[data-theme="dark"] .badge-success { background: var(--success-bg); color: var(--success-dark); border-color: rgba(110, 231, 183, 0.35); }
+[data-theme="dark"] .badge-error { background: rgba(248, 113, 113, 0.16); color: #FECACA; border-color: rgba(248, 113, 113, 0.35); }
+[data-theme="dark"] .badge-warning { background: rgba(251, 191, 36, 0.16); color: #FDE68A; border-color: rgba(251, 191, 36, 0.35); }
+[data-theme="dark"] .badge-info { background: rgba(96, 165, 250, 0.16); color: #BFDBFE; border-color: rgba(96, 165, 250, 0.35); }
+
+/* Size variants */
+.badge-sm {
+  padding: 2px 8px;
+  font-size: var(--text-12);
+  font-weight: 700;
+}
+
+/* Default/neutral tone */
+.badge-default {
+  background: var(--bg-secondary, #f3f4f6);
+  color: var(--text-secondary, #6b7280);
+  border-color: var(--border, #e5e7eb);
+}
+[data-theme="dark"] .badge-default {
+  background: rgba(156, 163, 175, 0.16);
+  color: #D1D5DB;
+  border-color: rgba(156, 163, 175, 0.35);
+}
+
+.badge-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: currentColor; flex-shrink: 0;
+}
+.badge-dot.animated {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+/* --- MODAL OVERLAY PRIMITIVE ------------------------------------------- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal, 1000);
+  background: var(--backdrop-bg);
+  backdrop-filter: var(--backdrop-blur);
+  -webkit-backdrop-filter: var(--backdrop-blur);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.modal-body-scroll {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+.summary-card-secondary {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+}
+
+/* --- THEME TOGGLE ------------------------------------------------------ */
+
+.theme-toggle-btn { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-top-left-radius: 999px; border-top-right-radius: 999px; border-bottom-right-radius: 999px; border-bottom-left-radius: 999px; color: var(--text-secondary); background: transparent; border: none; cursor: pointer; transition: var(--transition); position: relative; overflow: hidden; }
+.theme-toggle-btn:hover { background: var(--customer-green-soft); color: var(--customer-green-dark); }
+.theme-toggle-btn:active {
+  transform: scale(0.92);
+}
+.theme-toggle-btn svg {
+  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.theme-toggle-btn:hover svg {
+  transform: rotate(15deg) scale(1.1);
+}
+
+/* --- FILTER CHIPS ------------------------------------------------------
+   The one filter control for every list (ResponsiveFilterControls). Chips
+   size to their label; when they do not fit, the row scrolls sideways and
+   fades at the edge with more chips behind it (data-fade, set by the
+   component). Class names are new on purpose, so none of the older layered
+   .tab / .tabs rules can restyle them. */
+.filter-chips {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  padding: 3px;
+  margin: -3px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.filter-chips::-webkit-scrollbar {
+  display: none;
+}
+.filter-chips[data-fade="end"] {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent);
+}
+.filter-chips[data-fade="start"] {
+  -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 40px), transparent);
+  mask-image: linear-gradient(to left, #000 calc(100% - 40px), transparent);
+}
+.filter-chips[data-fade="both"] {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent);
+}
+.filter-chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: var(--text-13);
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+.filter-chip:hover {
+  border-color: var(--border-hover);
+  color: var(--text);
+}
+.filter-chip:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.filter-chip.active {
+  border-color: color-mix(in srgb, var(--primary) 45%, transparent);
+  background: var(--primary-bg);
+  color: var(--primary-text-strong);
+}
+.filter-chip-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--radius-full);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.filter-chip.active .filter-chip-count {
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  color: var(--primary-text-strong);
+}
+/* Red only where a human is blocked waiting on a decision (Action Needed). */
+.filter-chip-count.filter-chip-count-alert,
+.filter-chip.active .filter-chip-count.filter-chip-count-alert {
+  background: var(--error-fill);
+  color: #FFFFFF;
+}
+@media (pointer: coarse) {
+  .filter-chip {
+    min-height: 44px;
+  }
+}
+
+/* --- TRIP INFO BOX ------------------------------------------------------ */
+
+.trip-info-box {
+  background: var(--info-bg);
+  border-radius: 6px;
+  font-size: var(--text-13);
+}
+.trip-info-box svg { color: var(--info-dark); }
+
+/* --- ERROR SECTION FALLBACK --------------------------------------------- */
+
+.error-section-fallback {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem 1.25rem;
+  background: var(--warning-bg);
+  border: 1px solid rgba(245,158,11,0.2);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  font-size: var(--text-14);
+  animation: fadeIn 0.3s ease;
+}
+
+/* --- TABLE CARD LAYOUT IMPROVEMENTS --- */
+.app-layout .data-table td.details-cell {
+  max-width: 280px;
+}
+
+.feature-title-desc {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+}
+
+@media (max-width: 820px) {
+  .app-layout .data-table td.details-cell {
+    max-width: none !important;
+  }
+  
+  .feature-title-desc {
+    align-items: flex-end;
+    text-align: right;
+    width: 100%;
+  }
+}
+
+/* --- Interactive Info Tooltip -------------------------------------------- */
+.info-tooltip-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.info-tooltip-icon-btn {
+  background: transparent;
+  border: none;
+  padding: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: var(--info);
+  cursor: pointer;
+  transition: transform 0.15s ease, color 0.15s ease;
+}
+
+.info-tooltip-icon-btn:hover,
+.info-tooltip-icon-btn:focus-visible {
+  transform: scale(1.15);
+  color: var(--primary);
+}
+
+.info-tooltip-bubble {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: -10px;
+  transform: none;
+  background: var(--surface-raised);
+  color: var(--text) !important;
+  border: 1px solid var(--border);
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: var(--text-13);
+  font-weight: 500;
+  line-height: 1.45;
+  white-space: normal;
+  width: max-content;
+  max-width: min(280px, calc(100vw - 56px));
+  box-shadow: var(--shadow-lg);
+  z-index: 9999;
+  pointer-events: none;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.info-tooltip-bubble::after {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 14px;
+  transform: none;
+  border-width: 6px;
+  border-style: solid;
+  border-color: transparent transparent var(--surface-raised) transparent;
+}
+
+/* Invisible full-screen backdrop for mobile tap-to-dismiss */
+.info-tooltip-backdrop {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .info-tooltip-bubble {
+    position: fixed;
+    left: 16px;
+    right: 16px;
+    top: auto;
+    width: auto;
+    max-width: none;
+    z-index: 99999;
+    pointer-events: auto;
+  }
+  
+  .info-tooltip-bubble::after {
+    display: none;
+  }
+
+  .info-tooltip-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 99998;
+    background: transparent;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/* --- BRAND LOGO --------------------------------------------------------- */
+
+/* The supplied mark is a circle drawn on an opaque white square (the PNG has no
+   alpha). Clipping to a circle turns that white from a box around the logo into
+   the badge's own fill, which is what makes it sit correctly on the dark
+   sidebar and the dark glass navbar as well as on light. */
+/* The WebP/PNG <picture> around the logo takes no box of its own. */
+.brand-logo-picture { display: contents; }
+.brand-logo {
+  width: var(--brand-logo-size, 40px);
+  height: var(--brand-logo-size, 40px);
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  display: block;
+}
+
+/* Mark + wordmark. The gap scales with the mark so the lockup keeps its
+   proportions at 24px (footers) and at 40px (navbars) alike. */
+.brand-lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--brand-logo-size, 40px) * 0.22);
+  text-decoration: none;
+  min-width: 0;
+}
+
+.brand-wordmark {
+  font-weight: 700;
+  font-size: var(--text-16);
+  letter-spacing: -0.01em;
+  /* "CARGOEXPRESS PH" is a name, not a sentence — it never wraps mid-brand. */
+  white-space: nowrap;
+  line-height: 1.1;
+}
+
+/* On light surfaces: the name in the ink colour, "PH" in the brand colour —
+   the same split the badge artwork uses. */
+.brand-wordmark-default .brand-wordmark-name { color: var(--accent); }
+.brand-wordmark-default .brand-wordmark-suffix { color: var(--primary-text); }
+
+/* On the dark auth hero panels and the transparent About header. */
+.brand-wordmark-on-dark .brand-wordmark-name { color: #FFFFFF; }
+.brand-wordmark-on-dark .brand-wordmark-suffix { color: var(--primary-light); }
+
+/* Tight quarters: the mobile admin topbar and the customer navbar at phone
+   widths, where the nav links need the room more than the wordmark does. */
+@media (max-width: 480px) {
+  .brand-wordmark { font-size: var(--text-14); }
+}
+
+/* Input Prefix Wrapper */
+.input-prefix-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input-prefix {
+  position: absolute;
+  left: 14px;
+  font-size: var(--text-16);
+  pointer-events: none;
+}
+
+.form-input.has-prefix {
+  padding-left: 32px;
+}

@@ -1,0 +1,242 @@
+import { useState, useEffect, useRef } from 'react';
+import { supabase } from '../../lib/supabase';
+import { tripCapacityState } from '../../constants/status';
+import { Link, useNavigate } from 'react-router-dom';
+import { getTrips, getTripStartDateGates, withTimeout } from '../../lib/database';
+import { getCachedTripsList } from '../../lib/offlineScannerQueue';
+import StatusBadge from '../../components/ui/StatusBadge';
+import { CenteredSpinner } from '../../components/ui/Loader';
+import EmptyState from '../../components/ui/EmptyState';
+import ResponsiveFilterControls from '../../components/ui/ResponsiveFilterControls';
+import { Plus, Truck, Calendar, MapPin, CloudOff } from 'lucide-react';
+import usePageTitle from '../../hooks/usePageTitle';
+import { formatPhDate } from '../../utils/datetime';
+
+const tabs = ['All', 'scheduled', 'in_progress', 'arrived', 'completed', 'cancelled'];
+
+/**
+ * The bar is measured against PLANNED capacity — that is what the admin is
+ * planning to. `isFull` comes from the shared rule instead, because "can this
+ * trip still take a booking" is answered by the absolute ceiling (planned +
+ * 200 kg allowance), not by the bar.
+ */
+const getCapacityState = (current = 0, max = 0) => {
+  const percent = max > 0 ? (current / max) * 100 : 0;
+  const cap = tripCapacityState({ capacity: max }, current);
+  return {
+    percent,
+    barPercent: Math.min(100, percent),
+    isOver: percent > 100,
+    isWarning: percent > 80,
+    isFull: cap.isFull,
+    max: cap.max,
+    allowance: cap.allowance,
+  };
+};
+
+const AdminTripsPage = () => {
+  usePageTitle('Trips');
+  const [trips, setTrips] = useState([]);
+  const [startGates, setStartGates] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [activeTab, setActiveTab] = useState('All');
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const handleOnline = () => { setIsOnline(true); loadTrips({ silent: true }); };
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  useEffect(() => { loadTrips(); }, []);
+  const loadTrips = async ({ silent = false } = {}) => {
+    if (!silent && trips.length === 0) { setError(null); setLoading(true); }
+
+    // 1. FAST PATH: Check IndexedDB cache FIRST (instant 0ms hydration)
+    try {
+      const cached = await getCachedTripsList().catch(() => []);
+      if (cached?.length && trips.length === 0) {
+        setTrips(cached);
+        setLoading(false); // Instantly dismisses spinner so trips are visible!
+      }
+    } catch {
+      // Best-effort
+    }
+
+    // 2. NETWORK PATH: Fetch fresh trips from server
+    try {
+      const data = await withTimeout(getTrips());
+      const rows = data || [];
+      setTrips(rows);
+      setLoading(false);
+
+      // 3. Start date gates fetched non-blockingly so it never holds up displaying the trips list
+      if (typeof navigator !== 'undefined' && navigator.onLine) {
+        const scheduledIds = rows.filter(t => t.status === 'scheduled').map(t => t.id);
+        if (scheduledIds.length > 0) {
+          getTripStartDateGates(scheduledIds)
+            .then((gates) => setStartGates(gates || {}))
+            .catch((gateErr) => console.warn('Unable to load trip start date gates (offline):', gateErr));
+        }
+      }
+    } catch (e) {
+      if (!silent && trips.length === 0) setError(e.message || 'Failed to load trips.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Live status changes (started, arrived, auto-completed) without a reload.
+  const loadTripsRef = useRef(loadTrips);
+  loadTripsRef.current = loadTrips;
+  useEffect(() => {
+    let timer = null;
+    const refresh = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => { void loadTripsRef.current({ silent: true }); }, 700);
+    };
+    const channel = supabase
+      .channel(`admin_trips_list_${Date.now()}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, refresh)
+      .subscribe();
+    return () => { window.clearTimeout(timer); void supabase.removeChannel(channel); };
+  }, []);
+
+  const filtered = activeTab === 'All' ? trips : trips.filter(t => t.status === activeTab);
+  const filterOptions = tabs.map(t => ({
+    value: t,
+    label: t === 'All' ? 'All' : t.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' '),
+    count: t === 'All' ? trips.length : trips.filter(trip => trip.status === t).length,
+  }));
+
+  return (
+    <div className="page-transition">
+      <div className="admin-page-header">
+        <div>
+          <h1 className="admin-page-title"><Truck size={24} color="var(--primary)" aria-hidden="true" />Trips</h1>
+          <p className="admin-page-subtitle">Plan cargo runs, capacity, and trip status across routes.</p>
+        </div>
+        <div className="admin-page-meta">
+          <span className="badge badge-info">{loading ? 'Loading' : `${filtered.length} shown`}</span>
+          <span className="badge">{loading ? 'Checking trips' : `${trips.length} total`}</span>
+          <button type="button" className="btn btn-primary" onClick={() => navigate('/admin/trips/create')}><Plus size={16} /> Create Trip</button>
+        </div>
+      </div>
+      {!isOnline && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          background: 'rgba(234, 179, 8, 0.12)',
+          border: '1px solid rgba(234, 179, 8, 0.35)',
+          color: 'var(--text-muted, #ca8a04)',
+          borderRadius: 8,
+          padding: '10px 14px',
+          marginBottom: 16,
+          fontSize: '0.875rem',
+        }}>
+          <CloudOff size={18} color="#eab308" />
+          <span><strong>Offline Mode</strong> &mdash; Showing locally cached trips. You can open an active trip to scan cargo or record deliveries offline.</span>
+        </div>
+      )}
+      <ResponsiveFilterControls
+        options={filterOptions}
+        value={activeTab}
+        onChange={setActiveTab}
+        ariaLabel="Trip status filters"
+        className="mb-16"
+      />
+      {loading ? (
+        <CenteredSpinner />
+      ) : error ? (
+        <div className="card admin-error-card">
+          <h3>Error</h3>
+          <p>{error}</p>
+          <button type="button" className="btn btn-primary mt-md" onClick={loadTrips}>Retry</button>
+        </div>
+      ) : filtered.length === 0 ? (
+        <EmptyState
+          icon={Truck}
+          title="No trips found"
+          description={activeTab === 'All' ? 'Create your first trip to start managing deliveries.' : `No trips with status "${activeTab.replace(/_/g, ' ')}".`}
+          actionLabel={activeTab === 'All' ? 'Create Trip' : undefined}
+          onAction={activeTab === 'All' ? () => navigate('/admin/trips/create') : undefined}
+        />
+      ) : (
+        filtered.map((trip, i) => (
+          <Link
+            key={trip.id}
+            to={`/admin/trips/${trip.id}`}
+            className="card card-interactive admin-list-card stagger-item"
+            style={{ animationDelay: `${i * 60}ms` }}
+          >
+            <div className="card-body">
+              <div className="flex items-center justify-between mb-8">
+                <span className="fw-700 text-accent">{trip.trip_number}</span>
+                <span className="flex items-center gap-6">
+                  {tripCapacityState(trip, trip.current_weight || 0).isFull && (
+                    <span
+                      className="badge badge-sm rounded-full"
+                      style={{ background: 'var(--error-bg)', color: 'var(--error-text)', fontWeight: 700 }}
+                    >
+                      FULL
+                    </span>
+                  )}
+                  <StatusBadge status={trip.status} size="sm" />
+                </span>
+              </div>
+              <div className="flex items-center gap-8 text-sm"><MapPin size={14} className="text-primary" />{trip.origin} → {trip.destination}</div>
+              <div className="flex items-center gap-8 text-xs text-secondary mt-4">
+                <Calendar size={14} />{formatPhDate(trip.departure_date)}
+              </div>
+              {trip.status === 'scheduled' && startGates[trip.id]?.gate_state === 'overdue' && (
+                <div className="text-xs mt-4" style={{ color: 'var(--error-text)', fontWeight: 700 }}>
+                  Overdue — reschedule before starting
+                </div>
+              )}
+              {trip.status === 'scheduled' && startGates[trip.id]?.gate_state === 'before_date' && (
+                <div className="text-xs text-secondary mt-4">
+                  Starts on {formatPhDate(startGates[trip.id].scheduled_day)} (Manila time)
+                </div>
+              )}
+              {trip.capacity > 0 && (
+                <div className="mt-8">
+                  {(() => {
+                    const current = trip.current_weight || 0;
+                    const capacity = getCapacityState(current, trip.capacity);
+                    return (
+                      <>
+                        <div className="capacity-bar">
+                          <div
+                            className={`capacity-fill ${capacity.isOver ? 'danger' : capacity.isWarning ? 'warning' : ''}`}
+                            style={{ width: `${capacity.barPercent}%` }}
+                          />
+                        </div>
+                        <div className="flex justify-between text-xs text-tertiary mt-4">
+                          <span>Booked: {current.toFixed(1)} / {trip.capacity} kg</span>
+                          <span>Max: {capacity.max} kg</span>
+                        </div>
+                        {capacity.isFull
+                          ? <div className="capacity-note">FULL — at the {capacity.max} kg maximum. No further bookings.</div>
+                          : capacity.isOver && <div className="capacity-note">Over planned capacity — using the {capacity.allowance} kg allowance</div>}
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+          </Link>
+        ))
+      )}
+    </div>
+  );
+};
+
+export default AdminTripsPage;

@@ -1,0 +1,2353 @@
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { getOrderById, updateOrder, updateOrderContactDetails, getTripReassignments, reassignTrip, getActivityLogsByRecord, getPaymentTransactions, recordAdditionalPayment, recordPickupPayment, recordDeliveryPayment, recordBoxVerification, getOrderStatusEvents, reviewOrderCancellation, cancelOrderAsAdmin, assignOrderToCustomer, getLatestPaymentAttemptByOrder, clearPaymentReceiptUrls, getCancellationSettlementSummary } from '../../lib/database';
+import { isNetworkError, getCachedOrder, saveCachedOrder, startOnlineSync, sendQueuedPod, sendQueuedPickup } from '../../lib/offlineScannerQueue';
+import { pollPaymentStatus } from '../../lib/paymongo';
+import { clearPendingPayment, getPendingPayment } from '../../lib/pendingPayment';
+import { isPaymentPollReconciled } from '../../utils/paymentReconciliation';
+import { logOrder } from '../../lib/activityLog';
+import { buildStatusTimestamps } from '../../utils/statusTimestamps';
+import { resolvePhotoUrls, deletePhoto } from '../../lib/storage';
+import { supabase } from '../../lib/supabase';
+import { motion, AnimatePresence } from 'framer-motion';
+import StatusBadge from '../../components/ui/StatusBadge';
+import CopyButton from '../../components/ui/CopyButton';
+import ShareButton from '../../components/ui/ShareButton';
+import TrackingTimeline from '../../components/ui/TrackingTimeline';
+import PickupModal from '../../components/ui/PickupModal';
+import TripAssignModal from '../../components/ui/TripAssignModal';
+import TripReassignModal from '../../components/ui/TripReassignModal';
+import AssignCustomerModal from '../../components/ui/AssignCustomerModal';
+import EditContactDetailsModal from '../../components/ui/EditContactDetailsModal';
+import AdditionalPaymentModal from '../../components/ui/AdditionalPaymentModal';
+import RefundPaymentModal from '../../components/ui/RefundPaymentModal';
+import ManualRefundModal from '../../components/ui/ManualRefundModal';
+import DeliveryModal from '../../components/ui/DeliveryModal';
+import QrScannerModal from '../../components/ui/QrScannerModal';
+import ConfirmModal from '../../components/ui/ConfirmModal';
+import PaymentResultModal from '../../components/ui/PaymentResultModal';
+import ImageLightbox from '../../components/ui/ImageLightbox';
+import ResolvedPhotoLink from '../../components/ui/ResolvedPhotoLink';
+import Breadcrumb from '../../components/ui/Breadcrumb';
+import FocusTrap from '../../components/ui/FocusTrap';
+import { CenteredSpinner } from '../../components/ui/Loader';
+import ErrorBoundarySection from '../../components/ui/ErrorBoundarySection';
+import MessageCustomerButton from '../../components/ui/MessageCustomerButton';
+import FeatureShipmentModal from '../../components/ui/FeatureShipmentModal';
+import CancellationSettlementSummary from '../../components/ui/CancellationSettlementSummary';
+import CancellationSettlementModal from '../../components/ui/CancellationSettlementModal';
+import PackageQrLabels from '../../components/ui/PackageQrLabels';
+import {
+  STATUS_FLOW, STATUS_TIMELINE, validateStatusTransition,
+  getSettlementState, SETTLEMENT_STATE, outstandingBalance,
+  PAYMENT_METHODS, PAYMENT_STATUSES, ORDER_STATUS,
+  isTripControlledAdvance, canAdminCancelOrder, hasPendingCancellation, timelineStatus,
+  ADMIN_CONTACT_EDIT_LOCKED_STATUSES
+} from '../../constants/status';
+import {
+  ArrowLeft, Check, Package, CreditCard, User, Phone, MapPin,
+  Truck, Loader, Camera, AlertTriangle, X, Image, Clock, Trash2, Star, ChevronDown, UserPlus, Tag, RotateCcw, Lock, WifiOff, ScanQrCode
+} from 'lucide-react';
+import { useToast } from '../../hooks/useToast';
+import { useAuth } from '../../contexts/AuthContext';
+import usePageTitle from '../../hooks/usePageTitle';
+import useOrderPaymentRealtime from '../../hooks/useOrderPaymentRealtime';
+import useLatestRequest from '../../hooks/useLatestRequest';
+import { formatPhDate, formatPhDateTime } from '../../utils/datetime';
+import { formatMoney } from '../../utils/currencyInput';
+import { getOrderPaymentStatusDisplay, truncateRef, isSystemGenerated, getPaymentActivityStatusDisplay, formatRecordedBy as fmtRecordedBy } from '../../utils/paymentDisplay';
+import { orderPartyName, orderPartyAddress } from '../../lib/orderParties';
+
+const safeFormatDate = (dateStr, options) => {
+  if (!dateStr) return '—';
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return '—';
+    return options ? formatPhDate(d, options) : formatPhDate(d);
+  } catch {
+    try {
+      const d = new Date(dateStr);
+      return isNaN(d.getTime()) ? '—' : formatPhDate(d);
+    } catch {
+      return '—';
+    }
+  }
+};
+
+const safeFormatTime = (dateStr, options) => {
+  if (!dateStr) return '';
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return '';
+    // PH-pinned wall clock — en-PH locale alone would still render in the
+    // viewer's zone.
+    return d.toLocaleTimeString('en-PH', { ...(options || {}), timeZone: 'Asia/Manila' });
+  } catch {
+    try {
+      const d = new Date(dateStr);
+      return isNaN(d.getTime()) ? '' : d.toLocaleTimeString('en-PH', { timeZone: 'Asia/Manila' });
+    } catch {
+      return '';
+    }
+  }
+};
+
+const safeFormatDateTime = (dateStr) => {
+  if (!dateStr) return '—';
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return '—';
+    return formatPhDateTime(d);
+  } catch {
+    try {
+      const d = new Date(dateStr);
+      return isNaN(d.getTime()) ? '—' : formatPhDateTime(d);
+    } catch {
+      return '—';
+    }
+  }
+};
+
+/** 'gcash' → 'GCash', 'paylater' → 'Pay Later', anything else title-cased. */
+const formatPaymentMethod = (method) => {
+  if (!method) return '';
+  const key = String(method).toLowerCase();
+  if (key === 'gcash') return 'GCash';
+  if (key === 'paylater') return 'Pay Later';
+  if (key === 'cash') return 'Cash';
+  return key.charAt(0).toUpperCase() + key.slice(1);
+};
+
+const AdminOrderDetailPage = () => {
+  usePageTitle('Order Details');
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const toast = useToast();
+  const { user } = useAuth();
+
+  const [order, setOrder] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [showPickupModal, setShowPickupModal] = useState(false);
+  const [showTripModal, setShowTripModal] = useState(false);
+  const [showReassignModal, setShowReassignModal] = useState(false);
+  const [showAssignCustomerModal, setShowAssignCustomerModal] = useState(false);
+  const [showEditContactModal, setShowEditContactModal] = useState(false);
+  const [savingContactDetails, setSavingContactDetails] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [refundPayment, setRefundPayment] = useState(null);
+  const [manualRefundPayment, setManualRefundPayment] = useState(null);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [paymentResultModal, setPaymentResultModal] = useState(null);
+  // Feature-Shipment modal, opened from the Shipment Evidence card
+  const [showFeatureModal, setShowFeatureModal] = useState(false);
+  // Activity history collapse (collapsed = true hides the list; default expanded)
+  const [activityCollapsed, setActivityCollapsed] = useState(true);
+
+  const [showDeliveryModal, setShowDeliveryModal] = useState(false);
+  const [showScannerModal, setShowScannerModal] = useState(false);
+  const [showDispatchScannerModal, setShowDispatchScannerModal] = useState(false);
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [showDeclineCancelModal, setShowDeclineCancelModal] = useState(false);
+  const [showApproveCancellationModal, setShowApproveCancellationModal] = useState(false);
+  const [reviewingCancellation, setReviewingCancellation] = useState(false);
+  const [tripHistory, setTripHistory] = useState([]);
+  const [activityHistory, setActivityHistory] = useState([]);
+  const [statusEvents, setStatusEvents] = useState([]);
+  const [paymentTransactions, setPaymentTransactions] = useState([]);
+  const [cancellationSettlement, setCancellationSettlement] = useState(null);
+  const [settlementModalMode, setSettlementModalMode] = useState(null);
+  const [lightboxIndex, setLightboxIndex] = useState(-1);
+  const [lightboxImages, setLightboxImages] = useState([]);
+  const [resolvedPickupPhotos, setResolvedPickupPhotos] = useState([]);
+  const [photoLoadState, setPhotoLoadState] = useState({});
+  const [resolvedDeliveryPhotos, setResolvedDeliveryPhotos] = useState([]);
+  const [deliveryPhotoLoadState, setDeliveryPhotoLoadState] = useState({});
+  const beginRequest = useLatestRequest(id);
+
+  // savingFeature: owned by parent so the modal button disables correctly
+  // while the updateOrder() call is in-flight.
+  const [savingFeature, setSavingFeature] = useState(false);
+
+  const [isOnline, setIsOnline] = useState(() => typeof navigator !== 'undefined' ? navigator.onLine : true);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // Online auto-sync: flush queued scan events and delivery proofs as soon as the device reconnects
+  useEffect(() => {
+    const sendQueuedScan = (event) => recordBoxVerification(event.order_id, event.box_number, {
+      method: event.method || 'qr',
+      reason: event.reason || null,
+      throwOnNetworkError: true,
+    });
+    const handleFlushed = (summary) => {
+      const scansCount = summary.scans?.synced?.length || 0;
+      const podsCount = summary.pods?.synced?.length || 0;
+      const pickupsCount = summary.pickups?.synced?.length || 0;
+      if (scansCount || podsCount || pickupsCount) {
+        toast.success(`Synced offline actions!`);
+        void loadOrder({ silent: true });
+      }
+    };
+    const stopSync = startOnlineSync(sendQueuedScan, handleFlushed, {
+      sendPod: sendQueuedPod,
+      sendPickup: sendQueuedPickup,
+    });
+    return () => {
+      stopSync();
+    };
+  }, []);
+
+  /**
+   * How this order was ACTUALLY paid, from the ledger.
+   *
+   * `orders.payment_method` holds the method of the most recent payment event
+   * only, so a GCash pickup later settled in cash at the door rendered a bare
+   * "Cash" badge — the same conflation that made the sales report file every
+   * peso under whichever method landed last. The ledger is the sole writer of
+   * `amount_paid`, so it is also the only honest source for this badge.
+   *
+   * Filtered to `paid`/`partial` — the predicate update_order_payment_totals
+   * uses — so a failed or pending attempt never claims to be a method used.
+   */
+  const paidMethods = useMemo(() => {
+    const methods = paymentTransactions
+      .filter(tx => !tx.is_refund && (tx.payment_status === 'paid' || tx.payment_status === 'partial'))
+      .map(tx => tx.payment_method)
+      .filter(Boolean);
+    return [...new Set(methods)];
+  }, [paymentTransactions]);
+
+  // Per-step timestamps for tracking timeline
+  const stepTimestamps = useMemo(
+    () => buildStatusTimestamps(statusEvents, order?.created_at, order?.status),
+    [statusEvents, order?.created_at, order?.status]
+  );
+
+  useEffect(() => {
+    loadOrder();
+  }, [id]);
+
+  /**
+   * The GCash return path. PayMongo redirects the admin back to
+   * `/admin/orders/:id?payment=success` (or `failed`) after the customer
+   * authorizes. Same-window navigation is used everywhere — browser, desktop
+   * and installed PWA alike — so this is where the payment gets reconciled.
+   */
+  const [searchParams] = useSearchParams();
+
+  // Set when this page was reached by scanning a package QR label
+  // (?box=<n> — see PackageQrLabels.jsx). Those links point straight at this
+  // admin route specifically so an unauthorized scan hits the login wall
+  // (ProtectedRoute) instead of any public page; a signed-in admin lands
+  // here and this banner is the payoff of that redirect.
+  const scannedBox = (() => {
+    const raw = searchParams.get('box');
+    if (!raw) return null;
+    const n = parseInt(raw, 10);
+    return Number.isFinite(n) && n >= 1 ? n : null;
+  })();
+
+  const recordedScanRef = useRef(null);
+  useEffect(() => {
+    const verifiableStatus = order?.status === ORDER_STATUS.PICKED_UP || order?.status === ORDER_STATUS.OUT_FOR_DELIVERY;
+    if (scannedBox === null || !order || !verifiableStatus) return;
+    if ((order.verified_boxes || []).includes(scannedBox)) return;
+    const scanKey = `${order.id}:${scannedBox}`;
+    if (recordedScanRef.current === scanKey) return;
+    recordedScanRef.current = scanKey;
+    recordBoxVerification(order.id, scannedBox)
+      .then(() => loadOrder({ silent: true }))
+      .then(() => toast.success(`Box ${scannedBox} verified`))
+      .catch((e) => {
+        recordedScanRef.current = null;
+        if (!isNetworkError(e)) {
+          toast.error(e.message || 'Could not verify this box');
+        }
+      });
+  }, [scannedBox, order]);
+
+  const checkedReturnRef = useRef(false);
+  useEffect(() => {
+    const paymentResult = searchParams.get('payment');
+    // Wait for the authenticated account before reading an account-scoped
+    // pending source. Falling back to "latest attempt" while auth is still
+    // booting would reintroduce the same cross-attempt race this path fixes.
+    if (!paymentResult || !user?.id || checkedReturnRef.current) return;
+    checkedReturnRef.current = true;
+    navigate(`/admin/orders/${id}`, { replace: true });
+
+    if (paymentResult === 'failed') {
+      clearPendingPayment(id);
+      setPaymentResultModal({ variant: 'error' });
+      return;
+    }
+
+    const verify = async () => {
+      let channel = null;
+      let confirmed = false;
+      let attempt = null;
+      const finish = async (sourceAlreadyVerified = false) => {
+        if (confirmed) return;
+        if (!sourceAlreadyVerified) {
+          try {
+            const result = await pollPaymentStatus(attempt.source_id, id);
+            if (!isPaymentPollReconciled(result)) return;
+          } catch {
+            return;
+          }
+        }
+        confirmed = true;
+        if (channel) void supabase.removeChannel(channel);
+        clearPendingPayment(id);
+        setPaymentResultModal({ variant: 'success', amount: Number(attempt?.amount || 0), paymentMethod: 'GCash' });
+        await loadOrder();
+      };
+
+      try {
+        const pendingPayment = getPendingPayment({ orderId: id, role: 'admin', userId: user?.id });
+        attempt = pendingPayment
+          ? { source_id: pendingPayment.sourceId, amount: pendingPayment.amount, status: 'pending' }
+          : await getLatestPaymentAttemptByOrder(id);
+        if (!attempt?.source_id) {
+          await loadOrder();
+          return;
+        }
+        if (attempt.status === 'reconciled') {
+          clearPendingPayment(id);
+          setPaymentResultModal({ variant: 'success', amount: Number(attempt?.amount || 0), paymentMethod: 'GCash' });
+          await loadOrder();
+          return;
+        }
+
+        channel = supabase
+          .channel(`admin_payment_return_${id}`)
+          .on('postgres_changes', {
+            event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${id}`,
+          }, (payload) => {
+            // Mirror the customer page's settled test: a ₱0-balance unpriced
+            // order must not look paid just because remaining_balance <= 0.
+            if (
+              payload.new?.payment_status === 'paid'
+              || (Number(payload.new?.amount_paid) > 0 && Number(payload.new?.remaining_balance) <= 0)
+            ) {
+              void finish(false);
+            }
+          })
+          .subscribe();
+
+        for (const delay of [0, 2000, 4000, 6000, 8000]) {
+          if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+          if (confirmed) return;
+          try {
+            const result = await pollPaymentStatus(attempt.source_id, id);
+            if (isPaymentPollReconciled(result)) {
+              await finish(true);
+              return;
+            }
+          } catch {
+            // The webhook/realtime path may still complete the payment.
+          }
+        }
+        if (!confirmed) {
+          setPaymentResultModal({ variant: 'processing' });
+          await loadOrder();
+          setTimeout(() => { if (channel && !confirmed) void supabase.removeChannel(channel); }, 30000);
+        }
+      } catch {
+        await loadOrder();
+      }
+    };
+    verify();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, user?.id]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const photos = Array.isArray(order?.pickup_photos) ? order.pickup_photos : [];
+    if (photos.length === 0) { setResolvedPickupPhotos([]); return () => { isMounted = false; }; }
+    resolvePhotoUrls(photos)
+      .then(urls => { if (isMounted) setResolvedPickupPhotos(urls); })
+      .catch(() => { if (isMounted) setResolvedPickupPhotos([]); });
+    return () => { isMounted = false; };
+  }, [order?.pickup_photos]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPhotoLoadState({});
+    resolvedPickupPhotos.forEach((url, index) => {
+      const preview = new window.Image();
+      preview.onload  = () => { if (!cancelled) setPhotoLoadState(prev => ({ ...prev, [index]: 'loaded' })); };
+      preview.onerror = () => { if (!cancelled) setPhotoLoadState(prev => ({ ...prev, [index]: 'failed' })); };
+      preview.src = url;
+    });
+    return () => { cancelled = true; };
+  }, [resolvedPickupPhotos]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const photos = Array.isArray(order?.delivery_photos) ? order.delivery_photos : [];
+    if (photos.length === 0) { setResolvedDeliveryPhotos([]); return () => { isMounted = false; }; }
+    resolvePhotoUrls(photos)
+      .then(urls => { if (isMounted) setResolvedDeliveryPhotos(urls); })
+      .catch(() => { if (isMounted) setResolvedDeliveryPhotos([]); });
+    return () => { isMounted = false; };
+  }, [order?.delivery_photos]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setDeliveryPhotoLoadState({});
+    resolvedDeliveryPhotos.forEach((url, index) => {
+      const preview = new window.Image();
+      preview.onload  = () => { if (!cancelled) setDeliveryPhotoLoadState(prev => ({ ...prev, [index]: 'loaded' })); };
+      preview.onerror = () => { if (!cancelled) setDeliveryPhotoLoadState(prev => ({ ...prev, [index]: 'failed' })); };
+      preview.src = url;
+    });
+    return () => { cancelled = true; };
+  }, [resolvedDeliveryPhotos]);
+
+  // `silent` refreshes without the full-page spinner. The spinner replaces the
+  // whole page — any open modal included — so a refresh that runs around a
+  // modal must not go through it.
+  // Stale-While-Revalidate: Hydrate from IndexedDB cache first so the screen
+  // renders INSTANTLY (0ms) even offline, then fetch fresh data if online.
+  const loadOrder = async (opts = {}) => {
+    const silent = typeof opts === 'boolean' ? opts : (opts?.silent || false);
+    const isCurrent = beginRequest();
+    if (!isCurrent()) return;
+    if (!silent && !order) { setError(null); setLoading(true); }
+
+    let currentOrderData = null;
+
+    // 1. FAST PATH: Check IndexedDB cache FIRST (instant hydration)
+    try {
+      const cached = await getCachedOrder(id);
+      if (cached && isCurrent()) {
+        currentOrderData = { ...cached, _fromCache: true };
+        setOrder(currentOrderData);
+        // Instantly unblock the loading spinner!
+        setLoading(false);
+      }
+    } catch {
+      // Best-effort cache read
+    }
+
+    // 2. NETWORK PATH: If online, fetch fresh server data in background
+    const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+    if (!isOffline) {
+      try {
+        const data = await getOrderById(id);
+        if (isCurrent()) {
+          currentOrderData = data;
+          setOrder(data);
+          setError(null);
+        }
+      } catch (e) {
+        if (!isCurrent()) return;
+        // If we don't even have cached data, surface the error
+        if (!currentOrderData && !silent) {
+          if (isNetworkError(e)) {
+            setError('You are offline and this booking has not been cached yet.');
+          } else {
+            setError(e.message || 'Failed to load order.');
+          }
+        }
+      }
+    } else if (!currentOrderData && !silent && isCurrent()) {
+      setError('You are offline and this booking has not been cached yet.');
+    }
+
+    if (isCurrent()) setLoading(false);
+
+    // 3. SECONDARY DATA (Non-blocking): audit trail, events, and transactions
+    // Dispatched in parallel without blocking the page display
+    if (!isOffline && currentOrderData) {
+      const trackingNumber = currentOrderData.tracking_number;
+
+      getTripReassignments(id)
+        .then((history) => { if (isCurrent()) setTripHistory(history || []); })
+        .catch(() => {});
+
+      if (trackingNumber) {
+        getActivityLogsByRecord(id, trackingNumber)
+          .then((actLogs) => { if (isCurrent()) setActivityHistory(actLogs || []); })
+          .catch(() => {});
+      }
+
+      getOrderStatusEvents(id)
+        .then((events) => { if (isCurrent()) setStatusEvents(events || []); })
+        .catch(() => {});
+
+      getPaymentTransactions(id)
+        .then((pmts) => { if (isCurrent()) setPaymentTransactions(pmts || []); })
+        .catch(() => {});
+
+      if (currentOrderData.status === ORDER_STATUS.CANCELLED) {
+        getCancellationSettlementSummary(id)
+          .then((settlement) => { if (isCurrent()) setCancellationSettlement(settlement); })
+          .catch(() => {});
+      }
+    }
+  };
+
+  useOrderPaymentRealtime(id, () => loadOrder({ silent: true }));
+
+  // Pending/failed refunds can change history without changing order totals.
+  useEffect(() => {
+    if (!id || !user?.id) return undefined;
+    const channel = supabase
+      .channel(`admin_order_activity_${id}`)
+      .on('postgres_changes', {
+        event: 'INSERT', schema: 'public', table: 'activity_logs',
+        filter: `record_id=eq.${id}`,
+      }, () => { void loadOrder({ silent: true }); })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [id, user?.id]);
+
+  const handleStatusAdvance = async () => {
+    const next = STATUS_FLOW[order.status];
+    if (!next) return;
+    // The button is hidden for these, but a hidden button is a hint and this is
+    // the enforcement point — realtime can land a trip cascade between render
+    // and click.
+    if (isTripControlledAdvance(order)) {
+      toast.error(`"${next}" is set by the trip for every order aboard. Update the trip instead.`);
+      return;
+    }
+    if (order.status === ORDER_STATUS.ARRIVED_HUB && next === ORDER_STATUS.OUT_FOR_DELIVERY) {
+      setShowDispatchScannerModal(true);
+      return;
+    }
+    // "Assigned" means assigned to a *trip*. Without one the status is a claim
+    // about nothing, so the click is redirected to the thing that has to happen
+    // first rather than refused — the admin wanted to move this order forward,
+    // and picking the trip is how that is done. Assigning writes the status
+    // itself (handleTripAssign), so there is no second step afterwards.
+    if (next === ORDER_STATUS.ASSIGNED && !order.trip_id) {
+      setShowTripModal(true);
+      return;
+    }
+    if (next === ORDER_STATUS.PICKED_UP) {
+      if (!order.trip_id && !order.trips?.id) {
+        toast.error("This booking must be assigned to a trip before pickup can be processed.");
+        setShowTripModal(true);
+        return;
+      }
+      setShowPickupModal(true); 
+      return; 
+    }
+    if (next === ORDER_STATUS.DELIVERED) {
+      const verifiedBoxes = order.verified_boxes || [];
+      const unverifiedBoxes = Array.from({ length: order.package_quantity || 1 }, (_, i) => i + 1)
+        .filter((box) => !verifiedBoxes.includes(box));
+      if (unverifiedBoxes.length > 0) {
+        toast.error(`Scan the QR code on every box before delivering. Not yet verified: Box ${unverifiedBoxes.join(', ')}.`);
+        setShowScannerModal(true);
+        return;
+      }
+      setShowDeliveryModal(true);
+      return;
+    }
+    const validation = validateStatusTransition(order.status, next, order.trip_id, order);
+    if (!validation.valid) { toast.error(validation.error); return; }
+    setSaving(true);
+    try {
+      const updates = { status: next };
+      // When dispatching to Out for Delivery, reset verified_boxes so that
+      // all boxes must be scanned at the customer's doorstep before marking as Delivered.
+      if (next === ORDER_STATUS.OUT_FOR_DELIVERY) {
+        updates.verified_boxes = [];
+      }
+      await updateOrder(id, updates);
+      logOrder(`Status Changed to ${next}`, id, order.tracking_number, { previousValue: { status: order.status }, newValue: { status: next }, details: `Status advanced from ${order.status} to ${next}` });
+      await loadOrder();
+      toast.success(`Status updated to "${next}"`);
+    } catch (e) { toast.error(e.message || 'Failed to update status'); }
+    finally { setSaving(false); }
+  };
+
+  const handlePickupSave = async (pickupData) => {
+    try {
+      // Single transaction: order metadata UPDATE + ledger INSERT. The RPC
+      // never writes amount_paid/payment_status — update_order_payment_totals
+      // derives them from the ledger. See P0-1 in the architecture review.
+      await recordPickupPayment(id, pickupData);
+      if (pickupData.package_quantity) {
+        await updateOrder(id, { package_quantity: pickupData.package_quantity });
+      }
+
+      // pickupData.payment is null when a PayMongo QR is still pending — the
+      // webhook records that payment into the ledger, not this save.
+      const collected = pickupData.payment
+        ? `₱${pickupData.payment.amount}`
+        : 'pending PayMongo confirmation';
+      // The discount itself is already recorded on the order row (discount_
+      // amount/reason/notes/applied_by/applied_at — see the shipping-discount
+      // migrations) and in this SAME activity_logs entry via the RPC's own
+      // insert, independently of this client-side call. This second mention
+      // is only so the discount is legible in the plain-English pickup line
+      // an admin scans, not the only record of it.
+      const discountNote = pickupData.discount_amount > 0
+        ? ` Discount: ₱${pickupData.discount_amount} (${pickupData.discount_reason}).`
+        : '';
+      const qtyNote = pickupData.package_quantity
+        ? ` Quantity: ${pickupData.package_quantity} box(es).`
+        : '';
+      logOrder('Pickup Processed', id, order.tracking_number, { details: `Pickup processed. Weight: ${pickupData.actual_weight}kg,${qtyNote} Payment: ${pickupData.payment_method}, Amount: ${collected}.${discountNote}` });
+
+      setShowPickupModal(false);
+      await loadOrder();
+      if (pickupData._isOffline || (typeof navigator !== 'undefined' && navigator.onLine === false)) {
+        toast.success(`Pickup saved offline! It will automatically sync once you are back online.`);
+      } else {
+        toast.success(`Pickup processed! ${pickupData.package_quantity || 1} box(es) recorded. Please print and attach QR labels.`);
+      }
+      setTimeout(() => {
+        document.getElementById('package-qr-section')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 350);
+    } catch (e) { throw e; }
+  };
+
+  // PayMongo can reconcile through its webhook before the admin confirms the
+  // pickup modal. Stage the measured weight and discount first so the webhook
+  // calculates the same discounted balance and the final pickup RPC only
+  // completes the already-priced pickup.
+  const handlePreparePickupPayment = async (pickupData) => {
+    await updateOrder(id, pickupData);
+  };
+
+  // Delivery from a package label runs in the scanner's delivery session
+  // (QrScannerModal), so this page no longer auto-opens delivery from a
+  // ?deliver flag. The Delivered button still goes through handleStatusAdvance().
+
+  const handleDispatchComplete = async () => {
+    const next = ORDER_STATUS.OUT_FOR_DELIVERY;
+    const validation = validateStatusTransition(order.status, next, order.trip_id, order);
+    if (!validation.valid) {
+      toast.error(validation.error);
+      return;
+    }
+    setSaving(true);
+    try {
+      await updateOrder(id, { status: next, verified_boxes: [] });
+      logOrder(`Status Changed to ${next}`, id, order.tracking_number, {
+        previousValue: { status: order.status },
+        newValue: { status: next },
+        details: `Status advanced from ${order.status} to ${next} after dispatch scan verification.`,
+      });
+      setShowDispatchScannerModal(false);
+      await loadOrder();
+      toast.success('All boxes loaded and verified. Status advanced to "Out for Delivery".');
+    } catch (e) {
+      toast.error(e.message || 'Failed to advance status');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeliverySave = async (deliveryData) => {
+    try {
+      await recordDeliveryPayment(id, deliveryData);
+
+      logOrder('Delivery Proof Uploaded', id, order.tracking_number, { details: `Delivery processed. Photos uploaded: ${deliveryData.delivery_photos.length}` });
+      setShowDeliveryModal(false);
+      await loadOrder();
+      toast.success('Delivery processed successfully!');
+    } catch (e) { throw e; }
+  };
+
+  const handleTripAssign = async (tripId) => {
+    try {
+      await updateOrder(id, { trip_id: tripId, status: 'Assigned' });
+      logOrder('Assigned to Trip', id, order.tracking_number, { details: `Booking assigned to trip ID ${tripId}` });
+      setShowTripModal(false);
+      await loadOrder();
+      toast.success('Order assigned to trip!');
+    } catch (e) { toast.error(e.message || 'Failed to assign trip'); }
+  };
+
+  const handleTripReassign = async (newTripId, reason) => {
+    try {
+      await reassignTrip(id, newTripId, reason);
+      logOrder('Trip Reassigned', id, order.tracking_number, { previousValue: { trip_id: order.trip_id, trip_number: order.trips?.trip_number }, newValue: { trip_id: newTripId }, details: `Reason: ${reason}` });
+      setShowReassignModal(false);
+      await loadOrder();
+      toast.success('Trip changed successfully!');
+    } catch (e) { toast.error(e.message || 'Failed to change trip'); }
+  };
+
+  // Links a guest ("walk-in") booking onto the customer's own registered
+  // account. The notification is what actually tells them it's there — they
+  // may never have known this booking existed under any account before now,
+  // which is exactly why it is emitted by the order trigger and not from here.
+  const handleAssignCustomer = async (customer) => {
+    try {
+      await assignOrderToCustomer(id, customer.id);
+      logOrder('Booking Linked to Customer', id, order.tracking_number, {
+        previousValue: { user_id: order.user_id },
+        newValue: { user_id: customer.id },
+        details: `Linked guest booking to registered customer ${customer.name || customer.email || customer.id}.`,
+      });
+      setShowAssignCustomerModal(false);
+      await loadOrder();
+      toast.success(`${order.tracking_number} linked to ${customer.name || 'customer'}.`);
+    } catch (e) {
+      toast.error(e.message || 'Failed to assign this booking to a customer.');
+    }
+  };
+
+  // update_order_contact_details() (see lib/database.js) re-checks the
+  // status lock server-side for BOTH roles — admin is blocked at Out for
+  // Delivery/Delivered (ADMIN_CONTACT_EDIT_LOCKED_STATUSES, 20260915120000),
+  // customer additionally at Cancelled (canEditContactDetails) — so a stale
+  // form left open across a status change is rejected here with the RPC's
+  // own error message, surfaced by the catch block below. The RPC also
+  // writes the activity_logs row in the same transaction as the update, so
+  // no separate logOrder() call is made here on purpose.
+  const handleSaveContactDetails = async (fields) => {
+    setSavingContactDetails(true);
+    try {
+      await updateOrderContactDetails(id, fields);
+      setShowEditContactModal(false);
+      await loadOrder();
+      toast.success('Sender & receiver details updated.');
+    } catch (e) {
+      toast.error(e.message || 'Failed to update sender/receiver details.');
+    } finally {
+      setSavingContactDetails(false);
+    }
+  };
+
+  // Cancelling used to be a bare yes/no. The row then said 'Cancelled' with
+  // nothing beside it, and the only way to answer "why was this cancelled?"
+  // weeks later was to ask whoever clicked. The reason is now mandatory, stored
+  // on the order, written into the activity log, and told to the customer —
+  // who is otherwise the last person to learn their booking is gone.
+  const handleCancel = async (reason) => {
+    if (!canAdminCancelOrder(order)) {
+      setShowCancelConfirm(false);
+      toast.error(
+        order.status === ORDER_STATUS.PENDING_CANCELLATION
+          ? 'This order has a cancellation request awaiting review — use Approve or Decline instead.'
+          : `An order that is "${order.status}" cannot be cancelled.`
+      );
+      return;
+    }
+    setSaving(true);
+    try {
+      await cancelOrderAsAdmin(id, reason);
+      logOrder('Order Cancelled', id, order.tracking_number, {
+        previousValue: { status: order.status },
+        newValue: { status: 'Cancelled', cancellation_details: { reason } },
+        details: `Cancelled by admin. Reason: ${reason}`,
+      });
+      setShowCancelConfirm(false);
+      await loadOrder();
+      toast.success('Order cancelled.');
+    } catch (e) {
+      toast.error(e.message || 'Failed to cancel this order.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Approve or decline the customer's cancellation request.
+  //
+  // No logOrder() here on purpose: review_order_cancellation() writes the
+  // activity log and the customer's notification inside the same transaction
+  // as the status change. An audit entry that can be lost because the tab was
+  // closed between two round trips is not an audit entry.
+  // Re-fetches the ledger immediately before opening the refund modal, so
+  // the amount the admin sees (and the modal's own default/max) reflects a
+  // payment that may have completed moments ago — a PayMongo webhook or a
+  // manually-recorded additional payment can land at any time, independent
+  // of this order's status (neither RPC checks it — see database migrations
+  // 20260912010000 and 20260912184434), and stale figures here would make
+  // the modal's own server-side validation the only thing catching it.
+  const openRefundModal = async (txId) => {
+    try {
+      const fresh = await getPaymentTransactions(id);
+      setPaymentTransactions(fresh);
+      const freshSummary = order.status === ORDER_STATUS.CANCELLED
+        ? await getCancellationSettlementSummary(id)
+        : null;
+      if (freshSummary) setCancellationSettlement(freshSummary);
+      const rawTx = fresh.find(t => t.id === txId) || null;
+      const orderAvailable = freshSummary?.has_confirmed_decision
+        ? Number(freshSummary.refund_not_initiated || 0)
+        : Number.POSITIVE_INFINITY;
+      const freshTx = rawTx ? {
+        ...rawTx,
+        refundable_amount: Math.min(Number(rawTx.refundable_amount || 0), orderAvailable),
+      } : null;
+      const stillEligible = freshTx
+        && !freshTx.is_refund
+        && freshTx.payment_method === 'gcash'
+        && freshTx.gcash_channel === 'paymongo'
+        && ['paid', 'partial'].includes(freshTx.payment_status)
+        && Number(freshTx.refundable_amount || 0) > 0.005;
+      if (!stillEligible) {
+        toast.error('This payment is no longer eligible for a refund — the data has been refreshed.');
+        return;
+      }
+      setRefundPayment(freshTx);
+    } catch (e) {
+      toast.error(e.message || 'Failed to refresh payment data.');
+    }
+  };
+
+  // Same refresh-then-validate pattern as openRefundModal, for the manual
+  // (Cash / manual-GCash) path instead of the PayMongo one.
+  const openManualRefundModal = async (txId) => {
+    try {
+      const fresh = await getPaymentTransactions(id);
+      setPaymentTransactions(fresh);
+      const freshSummary = order.status === ORDER_STATUS.CANCELLED
+        ? await getCancellationSettlementSummary(id)
+        : null;
+      if (freshSummary) setCancellationSettlement(freshSummary);
+      const rawTx = fresh.find(t => t.id === txId) || null;
+      const orderAvailable = freshSummary?.has_confirmed_decision
+        ? Number(freshSummary.refund_not_initiated || 0)
+        : Number.POSITIVE_INFINITY;
+      const freshTx = rawTx ? {
+        ...rawTx,
+        refundable_amount: Math.min(Number(rawTx.refundable_amount || 0), orderAvailable),
+      } : null;
+      const stillEligible = freshTx
+        && !freshTx.is_refund
+        && ['paid', 'partial'].includes(freshTx.payment_status)
+        && !(freshTx.payment_method === 'gcash' && freshTx.gcash_channel === 'paymongo')
+        && Number(freshTx.refundable_amount || 0) > 0.005;
+      if (!stillEligible) {
+        toast.error('This payment is no longer eligible for a manual refund — the data has been refreshed.');
+        return;
+      }
+      setManualRefundPayment(freshTx);
+    } catch (e) {
+      toast.error(e.message || 'Failed to refresh payment data.');
+    }
+  };
+
+  // Cancellation review buttons refresh the ledger before opening their
+  // modal for the same reason as openRefundModal above: a late payment
+  // during "Pending Cancellation" is preserved by design (see the RPCs
+  // above), not blocked, so the admin should see the current amount before
+  // deciding, not whatever was on screen when the page first loaded.
+  const openCancellationDecision = async (setter) => {
+    await loadOrder(true, { silent: true });
+    setter(true);
+  };
+
+  const handleReviewCancellation = async (approve, notes = null) => {
+    setReviewingCancellation(true);
+    try {
+      await reviewOrderCancellation(id, approve, notes);
+      setShowDeclineCancelModal(false);
+      setShowApproveCancellationModal(false);
+      await loadOrder();
+      toast.success(approve
+        ? 'Cancellation approved. The order is now cancelled and the customer has been notified.'
+        : 'Cancellation declined. The order is back where it was and the customer has been notified.');
+    } catch (e) {
+      toast.error(e.message || 'Failed to record the cancellation decision.');
+    } finally {
+      setReviewingCancellation(false);
+    }
+  };
+
+  const handleAdditionalPayment = async (amount, method, ref, notes, date, receiptUrl, idempotencyKey = null, verifiedReceipt = false) => {
+    try {
+      await recordAdditionalPayment(id, amount, method, ref, notes, date, receiptUrl, idempotencyKey, verifiedReceipt);
+      setShowPaymentModal(false);
+      await loadOrder();
+      setPaymentResultModal({
+        variant: 'success',
+        amount: Number(amount),
+        paymentMethod: formatPaymentMethod(method),
+      });
+    } catch (err) {
+      throw err;
+    }
+  };
+
+  const handleApproveReview = async () => {
+    setSaving(true);
+    try {
+      const updates = { service_area_status: 'approved' };
+      if (order.status === 'Pending Review') {
+        updates.status = 'Pending';
+      }
+      await updateOrder(id, updates);
+      logOrder('Out-of-Coverage Request Approved', id, order.tracking_number, { details: 'Admin approved the special pickup request.' });
+      await loadOrder();
+      toast.success('Pickup request approved.');
+    } catch (e) {
+      toast.error(e.message || 'Failed to approve request.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRejectReview = async (reason) => {
+    setSaving(true);
+    try {
+      await updateOrder(id, { status: 'Cancelled', service_area_status: 'rejected', service_area_remarks: reason });
+      logOrder('Out-of-Coverage Request Rejected', id, order.tracking_number, { details: `Reason: ${reason}` });
+      await loadOrder();
+      toast.success('Pickup request rejected.');
+    } catch (e) {
+      toast.error(e.message || 'Failed to reject request.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveFeature = async (dataToSave) => {
+    setSavingFeature(true);
+    try {
+      await updateOrder(id, dataToSave);
+      logOrder(
+        dataToSave.featured_on_website ? 'Featured Shipment Published' : 'Featured Shipment Removed',
+        id,
+        order.tracking_number,
+        {
+          previousValue: { featured_on_website: order.featured_on_website, featured_title: order.featured_title },
+          newValue: { featured_on_website: dataToSave.featured_on_website, featured_title: dataToSave.featured_title },
+          details: dataToSave.featured_on_website
+            ? `Published this delivery to the public Featured Shipments gallery as "${dataToSave.featured_title}".`
+            : 'Removed this delivery from the public Featured Shipments gallery.',
+        }
+      );
+      toast.success('Featured shipment updated.');
+      setShowFeatureModal(false);
+      await loadOrder();
+    } catch (err) {
+      toast.error('Failed to update featured shipment.');
+    } finally {
+      setSavingFeature(false);
+    }
+  };
+
+
+  if (loading) return <CenteredSpinner />;
+  if (error) return (
+    <div className="page-transition">
+      <div className="card text-center text-error" role="alert" style={{ padding: 40 }}>
+        <h3>Error Loading Order</h3>
+        <p className="mt-8 mb-20">{error}</p>
+        <button type="button" className="btn btn-primary" onClick={() => loadOrder()}>Retry</button>
+      </div>
+    </div>
+  );
+  if (!order) return <div className="empty-state"><h3>Order not found</h3></div>;
+
+  const nextStatus = STATUS_FLOW[order.status];
+  const isTerminal = order.status === 'Delivered' || order.status === 'Cancelled';
+
+  // ── Who owns the next move ───────────────────────────────────────────────
+  // Once an order is on a trip, "departed" and "arrived at the hub" are facts
+  // about the vehicle, and TripDetailPage writes them to every order aboard at
+  // once. Offering the same step here per order let one parcel be marched ahead
+  // of the truck it is sitting in, and the trip's later bulk update then wrote
+  // over it. The trip is the single writer for those two steps.
+  //
+  // This generalises the hand-written "Picked Up → In Transit" exclusion that
+  // used to sit inline in the JSX; "In Transit → Arrived at Hub" was the case
+  // it missed.
+  const tripOwnsNextStep = isTripControlledAdvance(order);
+  // Out for Delivery and Delivered stay manual — they are last-mile events for
+  // one parcel at one door, and Out for Delivery carries the settlement gate.
+  const needsTrip = order.status === 'Pending' && !order.trip_id;
+  // While a trip is missing, "Assign to Trip" IS the advance step — assigning
+  // sets the status. Two buttons for one action invited the click that produced
+  // an Assigned order with no trip.
+  const showAdvanceButton = Boolean(nextStatus) && !tripOwnsNextStep && !needsTrip;
+  const showCancelButton = canAdminCancelOrder(order);
+  const awaitingCancellationReview = hasPendingCancellation(order);
+  // A "guest" booking is one AdminCreateBookingPage inserted under the
+  // admin's own account on the customer's behalf — there is no `is_guest`
+  // column, so the tell is that `orders.user_id` resolves to a profile that
+  // isn't a customer at all. `!order.profiles` (the joined profile missing
+  // entirely) reads the same way and is treated the same way: nothing
+  // customer-shaped to message or attribute this to.
+  const isGuestBooking = order.profiles?.role !== 'customer';
+  const hasPhotos = resolvedPickupPhotos.length > 0;
+  const canReassignTrip = order.trip_id && [ORDER_STATUS.PENDING, ORDER_STATUS.ASSIGNED].includes(order.status);
+
+  // A weighed order's fee is the RECORDED shipping_cost — it was priced from
+  // the company rate in force when the weight was recorded and is never
+  // re-priced by a later rate change (guard_order_update). Only a new or
+  // corrected weight at pickup uses the CURRENT company rate, which
+  // attachCompanyTripDefaults() puts on order.trips.price_per_kg.
+  const currentCompanyRate = parseFloat(order.trips?.price_per_kg || 0) > 0
+    ? parseFloat(order.trips.price_per_kg)
+    : 70;
+
+  const currentWeight = parseFloat(order.actual_weight) || 0;
+  const computedShippingCost = currentWeight > 0 ? (parseFloat(order.shipping_cost) || 0) : 0;
+  // The ORIGINAL fee is never touched by the discount — see the
+  // shipping-discount migrations' design note. What is actually owed is the
+  // original fee minus the fixed peso discount, floored at 0.
+  const computedDiscountAmount = parseFloat(order.discount_amount || 0) || 0;
+  const computedFinalFee = Math.max(0, computedShippingCost - computedDiscountAmount);
+  const computedAmountPaid = parseFloat(order.amount_paid || 0);
+  const computedRemainingBalance = computedFinalFee - computedAmountPaid;
+  const isOverpaid = computedRemainingBalance < 0;
+  const pickupPricePerKilo = currentCompanyRate;
+
+  // 'unpriced' | 'settled' | 'owing'. Read from the shared helper so this page,
+  // the dispatch gate, and the Unsettled list all answer the money question the
+  // same way — an unweighed parcel is none of paid, unpaid, or settled.
+  const settlementState = getSettlementState(order);
+
+  // Cancellation approval and refund submission are two separate database
+  // writes (review_order_cancellation() never touches payment_refunds) — this
+  // summary exists so an admin reviewing or having just approved a
+  // cancellation can see the actual money state in one place instead of
+  // assuming "Cancelled" implies anything about a refund. `refund_status` on
+  // a refund row is `outcome_uncertain ? 'uncertain' : status` (see
+  // database.js mergePaymentActivity) — 'uncertain' is not a real
+  // payment_refunds.status value, just how an ambiguous provider outcome is
+  // surfaced here.
+  const refundRows = paymentTransactions.filter(tx => tx.is_refund);
+  const grossCollected = paymentTransactions
+    .filter(tx => !tx.is_refund && ['paid', 'partial'].includes(tx.payment_status))
+    .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+  const refundSucceeded = refundRows
+    .filter(tx => tx.refund_status === 'succeeded')
+    .reduce((sum, tx) => sum + Math.abs(Number(tx.amount || 0)), 0);
+  const refundPending = refundRows
+    .filter(tx => ['creating', 'pending', 'processing', 'uncertain'].includes(tx.refund_status))
+    .reduce((sum, tx) => sum + Math.abs(Number(tx.amount || 0)), 0);
+  const refundFailed = refundRows
+    .filter(tx => tx.refund_status === 'failed')
+    .reduce((sum, tx) => sum + Math.abs(Number(tx.amount || 0)), 0);
+  const settlementAllowsAnotherRefund = !cancellationSettlement?.has_confirmed_decision
+    || (cancellationSettlement.settlement_status !== 'needs_reconciliation'
+      && Number(cancellationSettlement.refund_not_initiated || 0) > 0.005);
+  // Same gate the per-row "Refund" button already uses (payment_method
+  // 'gcash' + gcash_channel 'paymongo' is what prepare_paymongo_refund()
+  // actually requires) — kept in one place so the summary and the row action
+  // can never disagree about which transactions are provider-refundable.
+  const eligibleRefundTx = paymentTransactions.filter(tx =>
+    !tx.is_refund
+    && tx.payment_method === 'gcash'
+    && tx.gcash_channel === 'paymongo'
+    && ['paid', 'partial'].includes(tx.payment_status)
+    && settlementAllowsAnotherRefund
+    && Number(tx.refundable_amount || 0) > 0.005
+  );
+  const unrefundablePaidTx = paymentTransactions.filter(tx =>
+    !tx.is_refund
+    && ['paid', 'partial'].includes(tx.payment_status)
+    && settlementAllowsAnotherRefund
+    && !(tx.payment_method === 'gcash' && tx.gcash_channel === 'paymongo')
+  );
+
+  return (
+    <div className="page-transition">
+      <Breadcrumb items={[
+        { label: 'Dashboard', to: '/admin' },
+        { label: 'Bookings', to: '/admin/orders' },
+        { label: order.tracking_number },
+      ]} />
+
+      {(!isOnline || order?._fromCache) && (
+        <div style={{
+          background: 'rgba(234, 88, 12, 0.1)',
+          border: '1px solid rgba(234, 88, 12, 0.3)',
+          borderRadius: '8px',
+          padding: '10px 14px',
+          marginBottom: '16px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          color: '#ea580c',
+          fontSize: '13px',
+          fontWeight: '500',
+        }}>
+          <WifiOff size={16} style={{ flexShrink: 0 }} />
+          <span>Offline Mode (Cached Booking) — Scans and delivery confirmations will be saved on this device and synced automatically once you are back online.</span>
+        </div>
+      )}
+
+      <ErrorBoundarySection message="Order info failed to load.">
+      {/* Header */}
+      <div className="admin-order-heading mb-8">
+        <div className="order-tracking-title">
+          <h1 className="fw-700 text-2xl">{order.tracking_number}</h1>
+          <span className="order-tracking-actions">
+            <CopyButton value={order.tracking_number} label="Copy tracking number" copiedMessage="Tracking number copied" />
+            <ShareButton trackingNumber={order.tracking_number} />
+          </span>
+        </div>
+        <div className="admin-order-heading-status">
+            <StatusBadge status={order.status} />
+            {order.status === 'Delivered' && computedRemainingBalance > 0 && (
+              <span className="badge badge-error flex items-center gap-4">
+                <AlertTriangle size={14} /> Outstanding Balance: {formatMoney(computedRemainingBalance)}
+              </span>
+            )}
+        </div>
+      </div>
+      <div className="flex items-center gap-8 text-sm mb-20 flex-wrap">
+        <span className="fw-700 text-secondary">{order.origin}</span>
+        <span className="fw-700" style={{ color: 'var(--primary-text)' }}>➔</span>
+        <span className="fw-700 text-secondary">{order.destination}</span>
+        <span className="text-secondary opacity-50">•</span>
+        {isGuestBooking ? (
+          <>
+            <span className="badge badge-warning" style={{ fontSize: 'var(--text-12)' }}>Guest Booking</span>
+            {/* No real customer account behind this order yet, so there is
+                nobody to message — an admin/self-owned user_id is not a
+                customer inbox thread. Assigning it to one is the fix. */}
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              onClick={() => setShowAssignCustomerModal(true)}
+            >
+              <UserPlus size={14} /> Assign to Customer
+            </button>
+          </>
+        ) : (
+          <>
+            <span className="text-secondary">{order.profiles?.name}</span>
+            {/* The customer who booked this — `orders.user_id`; there is no
+                customer_id column. Labelled here because this row has the space
+                and it is the entry point an admin reaches for most often. */}
+            <MessageCustomerButton
+              customerId={order.user_id}
+              customerName={order.profiles?.name}
+              showLabel
+            />
+          </>
+        )}
+      </div>
+
+      {/* Reached via a scanned package QR label (?box=n) — see scannedBox
+          above. Purely informational: it does not gate anything, the login
+          wall already did that before this page could render at all. */}
+      {scannedBox !== null && (
+        <div className="alert-banner alert-banner-info mb-16" role="status">
+          <Package size={18} aria-hidden="true" />
+          <span>You scanned <strong>Box {scannedBox} of {order.package_quantity || 1}</strong> for this booking.</span>
+        </div>
+      )}
+
+      {(order.status === ORDER_STATUS.PICKED_UP || order.status === ORDER_STATUS.OUT_FOR_DELIVERY || order.status === ORDER_STATUS.ARRIVED_HUB) && (
+        <div className="text-sm mb-16" role="status">
+          <strong>Boxes verified:</strong>{' '}
+          {(order.verified_boxes || []).length} of {order.package_quantity || 1}
+          {order.status === ORDER_STATUS.PICKED_UP
+            ? ' — every box QR code must be scanned before departure.'
+            : order.status === ORDER_STATUS.ARRIVED_HUB
+              ? ' — scan every box QR code before dispatching for delivery.'
+              : ' — scan each box using the scanner to complete delivery.'}
+        </div>
+      )}
+
+      {/* Why this booking is cancelled — shown on the order itself, not only in
+          the activity log, because "why?" is the first question anyone opening
+          a cancelled order has. Covers both routes in: an approved customer
+          request (which carries cancellation_requested_at) and an admin
+          cancelling outright (which does not). */}
+      {order.status === 'Cancelled' && order.cancellation_details?.reason && (
+        <div className="card admin-section-card stagger-item mb-16" style={{ animationDelay: '40ms' }}>
+          <div className="card-body">
+            <h3 className="flex items-center gap-8 text-sm fw-700 mb-8">
+              <AlertTriangle size={16} aria-hidden="true" /> Cancellation Details
+            </h3>
+            <p className="text-xs text-secondary mb-8">
+              {order.cancellation_details?.requested_at
+                ? `Requested by ${order.profiles?.name || 'the customer'}`
+                : 'Cancelled by an admin'}
+              {order.cancellation_details?.reviewed_at
+                ? ` • ${safeFormatDate(order.cancellation_details?.reviewed_at, { month: 'short', day: 'numeric', year: 'numeric' })}`
+                : ''}
+            </p>
+            <div className="text-xs text-tertiary fw-700 text-uppercase mb-4">
+              {order.cancellation_details?.requested_at ? "Customer's reason" : 'Reason given'}
+            </div>
+            <blockquote
+              className="text-sm m-0"
+              style={{ borderLeft: '3px solid var(--border)', paddingLeft: 12 }}
+            >
+              {order.cancellation_details?.reason}
+            </blockquote>
+
+            {/* Only for an approved REQUEST: on an admin-initiated cancellation
+                the reason above is already the admin's own, and repeating it
+                under a second heading would read as two separate remarks. */}
+            {order.cancellation_details?.requested_at && (
+              <>
+                <div className="text-xs text-tertiary fw-700 text-uppercase mb-4 mt-12">
+                  Admin note
+                </div>
+                <blockquote
+                  className="text-sm m-0"
+                  style={{ borderLeft: '3px solid var(--border)', paddingLeft: 12 }}
+                >
+                  {order.cancellation_details?.review_notes || (
+                    <span className="text-tertiary">
+                      No note was recorded — this request was approved before notes were required.
+                    </span>
+                  )}
+                </blockquote>
+              </>
+            )}
+
+            {/* Approving/force-cancelling only ever changes orders.status —
+                neither path touches payment_refunds, so say so explicitly
+                rather than let "Cancelled" be read as "refunded". */}
+            {refundSucceeded === 0 && refundPending === 0 && refundFailed === 0 ? (
+              <div className="alert-banner alert-banner-info mt-16 py-8 px-12" style={{ fontSize: 'var(--text-13)' }}>
+                Booking cancelled. No money has been refunded by this action.
+                {grossCollected > 0 && ' Use "Start Refund" below if a refund is owed.'}
+              </div>
+            ) : null}
+
+            <CancellationPaymentSummary
+              finalCharge={computedFinalFee}
+              grossCollected={grossCollected}
+              refundSucceeded={refundSucceeded}
+              refundPending={refundPending}
+              refundFailed={refundFailed}
+              eligibleRefundTx={eligibleRefundTx}
+              unrefundablePaidTx={unrefundablePaidTx}
+              onSelectRefund={(tx) => openRefundModal(tx.id)}
+              onSelectManualRefund={(tx) => openManualRefundModal(tx.id)}
+              settlementSummary={cancellationSettlement}
+              historicalPromiseDate={order.promised_payment_date}
+              onManageDecision={() => setSettlementModalMode(cancellationSettlement?.has_confirmed_decision ? 'amend' : 'record')}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Cancellation Request Review Action Bar.
+          Sits above the out-of-coverage bar because it is the more urgent of
+          the two: the booking is frozen and a customer is waiting on an
+          answer. */}
+      {awaitingCancellationReview && (
+        <div className="card admin-section-card admin-action-card stagger-item mb-16" style={{ animationDelay: '40ms', borderColor: 'var(--warning)', background: 'var(--warning-bg)' }}>
+          <div className="card-body">
+            <h3 className="flex items-center gap-8 mb-12" style={{ color: 'var(--warning-dark)' }}>
+              <AlertTriangle size={20} /> Cancellation Request
+            </h3>
+            <p className="text-sm mb-8" style={{ color: 'var(--warning-dark)' }}>
+              <strong>{order.profiles?.name || 'The customer'}</strong> asked to cancel this booking
+              {order.cancellation_details?.requested_at
+                ? ` on ${safeFormatDate(order.cancellation_details?.requested_at, { month: 'short', day: 'numeric', year: 'numeric' })}`
+                : ''}.
+              It was <strong>{order.cancellation_details?.previous_status || 'Pending'}</strong> at the time
+              and goes back there if you decline.
+            </p>
+            <blockquote
+              className="text-sm mb-16"
+              style={{ color: 'var(--warning-dark)', borderLeft: '3px solid var(--warning)', paddingLeft: 12, margin: '0 0 16px' }}
+            >
+              {order.cancellation_details?.reason || 'No reason recorded.'}
+            </blockquote>
+            <CancellationPaymentSummary
+              finalCharge={computedFinalFee}
+              grossCollected={grossCollected}
+              refundSucceeded={refundSucceeded}
+              refundPending={refundPending}
+              refundFailed={refundFailed}
+              eligibleRefundTx={eligibleRefundTx}
+              unrefundablePaidTx={unrefundablePaidTx}
+              onSelectRefund={(tx) => openRefundModal(tx.id)}
+              onSelectManualRefund={(tx) => openManualRefundModal(tx.id)}
+            />
+            <div className="admin-action-group mt-16">
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={() => openCancellationDecision(setShowApproveCancellationModal)}
+                disabled={reviewingCancellation}
+              >
+                {reviewingCancellation ? <Loader size={16} className="animate-spin" /> : <Check size={16} />}
+                Approve &amp; Cancel Order
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => openCancellationDecision(setShowDeclineCancelModal)}
+                disabled={reviewingCancellation}
+              >
+                Decline Request
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => navigate(`/admin/inbox?customerId=${encodeURIComponent(order.user_id)}`)}
+              >
+                <Phone size={16} /> Contact Customer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Out of Coverage Review Action Bar */}
+      {order.service_area_status === 'for_review' && (
+        <div className="card admin-section-card admin-action-card stagger-item mb-16" style={{ animationDelay: '60ms', borderColor: 'var(--warning)', background: 'var(--warning-bg)' }}>
+          <div className="card-body">
+            <h3 className="flex items-center gap-8 mb-12" style={{ color: 'var(--warning-text)' }}>
+              <AlertTriangle size={20} /> Out of Coverage Pickup Review
+            </h3>
+            <p className="text-sm mb-16" style={{ color: 'var(--warning-text)' }}>
+              This pickup location is outside standard coverage: <strong>{orderPartyAddress(order, 'sender')}</strong>.<br />
+              Please review feasibility and choose an action.
+            </p>
+            <div className="admin-action-group">
+              <button type="button" className="btn btn-primary" onClick={handleApproveReview} disabled={saving}>
+                {saving ? <Loader size={16} className="animate-spin" /> : <Check size={16} />}
+                Approve Request
+              </button>
+              <button type="button" className="btn btn-danger-outline btn-sm" onClick={() => setShowRejectModal(true)} disabled={saving}>
+                Reject Request
+              </button>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={async () => {
+                try {
+                  logOrder('Customer Contacted', id, order.tracking_number, { details: 'Admin contacted the customer regarding special pickup request.' });
+                } catch(e) {}
+                // Same route as MessageCustomerButton. This used to pass
+                // router state, which InboxPage no longer reads — one
+                // mechanism, and a URL that survives a reload.
+                navigate(`/admin/inbox?customerId=${encodeURIComponent(order.user_id)}`);
+              }}>
+                <Phone size={16} /> Contact Customer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Status Action Bar */}
+      {(!isTerminal && !awaitingCancellationReview && order.service_area_status !== 'for_review'
+        && (needsTrip || showAdvanceButton || showCancelButton || tripOwnsNextStep)) && (
+        <div className="card admin-section-card admin-action-card stagger-item mb-16" style={{ animationDelay: '60ms' }}>
+          <div className="card-body">
+            {/* Says where the missing button went. Without this the bar just
+                empties out and the step looks broken rather than delegated. */}
+            {tripOwnsNextStep && (
+              <div className="flex items-start gap-8 text-sm text-secondary mb-12">
+                <Truck size={16} aria-hidden="true" style={{ flexShrink: 0, marginTop: 2 }} />
+                <span>
+                  This order moves with its trip. <strong>{nextStatus}</strong> is set for every
+                  order aboard when the trip is updated.
+                </span>
+              </div>
+            )}
+            <div className="admin-action-group">
+            {tripOwnsNextStep && (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => navigate(`/admin/trips/${order.trip_id}`)}
+              >
+                <Truck size={16} /> Open {order.trips?.trip_number || 'Trip'}
+              </button>
+            )}
+            {needsTrip && (
+              <button type="button" className="btn btn-secondary" onClick={() => setShowTripModal(true)}>
+                <Truck size={16} /> Assign to Trip
+              </button>
+            )}
+            {showAdvanceButton && (
+              order.status === ORDER_STATUS.OUT_FOR_DELIVERY ? (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => setShowScannerModal(true)}
+                  disabled={saving}
+                >
+                  <Camera size={16} /> Open Scanner to Deliver
+                </button>
+              ) : order.status === ORDER_STATUS.ARRIVED_HUB ? (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => setShowDispatchScannerModal(true)}
+                  disabled={saving}
+                >
+                  {saving ? <Loader size={16} className="animate-spin" /> : <ScanQrCode size={16} />}
+                  Scan to Load for Delivery
+                </button>
+              ) : (
+                <button type="button" className="btn btn-primary" onClick={handleStatusAdvance} disabled={saving}>
+                  {saving ? <Loader size={16} className="animate-spin" /> : <Check size={16} />}
+                  {nextStatus === 'Picked Up' ? 'Process Pickup' : `Advance to "${nextStatus}"`}
+                </button>
+              )
+            )}
+            {showCancelButton && (
+              <button type="button" className="btn btn-danger-outline btn-sm" onClick={() => setShowCancelConfirm(true)} disabled={saving}>
+                Cancel Order
+              </button>
+            )}
+            </div>
+          </div>
+        </div>
+      )}
+
+
+      {/* Trip Warning */}
+      {needsTrip && (
+        <div className="alert-banner alert-banner-error" style={{ background: 'var(--warning-bg)', color: 'var(--warning-text)', borderColor: 'var(--warning)' }}>
+          <span className="flex items-center gap-10">
+            <AlertTriangle size={18} />
+            This order has not been assigned to a trip yet. Assign it before advancing status.
+          </span>
+        </div>
+      )}
+
+      {/* Timeline */}
+      <ErrorBoundarySection message="Tracking timeline failed to load.">
+      <div className="card admin-section-card stagger-item mb-16" style={{ animationDelay: '120ms' }}>
+        <div className="card-header"><h3>Status Timeline</h3></div>
+        <div className="card-body"><TrackingTimeline currentStatus={timelineStatus(order)} compact stepTimestamps={stepTimestamps} /></div>
+      </div>
+      </ErrorBoundarySection>
+
+      {/* Sender / Receiver */}
+      {/* Contact details are locked once the booking is Out for Delivery or Delivered.
+          ADMIN_CONTACT_EDIT_LOCKED_STATUSES mirrors the admin branch of the
+          backend SQL guard in update_order_contact_details() (20260915120000)
+          — both must agree. Deliberately NOT CONTACT_EDIT_LOCKED_STATUSES,
+          which is the customer-facing list and also includes Cancelled — an
+          admin may still correct a Cancelled booking's address. */}
+      {(() => {
+        const contactLocked = ADMIN_CONTACT_EDIT_LOCKED_STATUSES.includes(order.status);
+        return (
+          <>
+            <div className="flex items-center justify-between mb-8">
+              <h3 className="text-sm fw-700 m-0">Sender &amp; Receiver</h3>
+              {contactLocked ? (
+                <span
+                  className="flex items-center gap-4 text-xs text-tertiary"
+                  title="Customer details are locked once the booking is out for delivery."
+                >
+                  <Lock size={12} />
+                  Locked
+                </span>
+              ) : (
+                <button type="button" className="btn btn-outline btn-sm" onClick={() => setShowEditContactModal(true)}>
+                  Edit Details
+                </button>
+              )}
+            </div>
+            {contactLocked && (
+              <p className="text-xs text-secondary mb-8" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <Lock size={11} style={{ flexShrink: 0 }} />
+                Customer details are locked once the booking is out for delivery.
+              </p>
+            )}
+          </>
+        );
+      })()}
+      <div className="grid grid-2 mb-16">
+        <div className="card stagger-item" style={{ animationDelay: '180ms' }}><div className="card-body p-16">
+          <div className="text-xs text-tertiary font-bold text-uppercase flex items-center gap-6" style={{ marginBottom: 10 }}><User size={12} /> Sender</div>
+          <div className="text-sm font-bold">{orderPartyName(order, 'sender')}</div>
+          <div className="text-sm text-secondary flex items-center gap-4" style={{ marginTop: 2 }}><Phone size={12} /> {order.sender_phone}</div>
+          <div className="text-xs text-secondary" style={{ marginTop: 6 }}><MapPin size={12} className="inline mr-4" />{orderPartyAddress(order, 'sender')}</div>
+        </div></div>
+        <div className="card stagger-item" style={{ animationDelay: '240ms' }}><div className="card-body p-16">
+          <div className="text-xs text-tertiary font-bold text-uppercase flex items-center gap-6" style={{ marginBottom: 10 }}><User size={12} /> Receiver</div>
+          <div className="text-sm font-bold">{orderPartyName(order, 'receiver')}</div>
+          <div className="text-sm text-secondary flex items-center gap-4" style={{ marginTop: 2 }}><Phone size={12} /> {order.receiver_phone}</div>
+          <div className="text-xs text-secondary" style={{ marginTop: 6 }}><MapPin size={12} className="inline mr-4" />{orderPartyAddress(order, 'receiver')}</div>
+        </div></div>
+      </div>
+
+      <EditContactDetailsModal
+        isOpen={showEditContactModal}
+        onClose={() => setShowEditContactModal(false)}
+        order={order}
+        onSave={handleSaveContactDetails}
+        saving={savingContactDetails}
+      />
+
+      {/* Trip Assignment Info */}
+      {order.trip_id && (
+        <div className="card admin-section-card stagger-item mb-16" style={{ animationDelay: '260ms' }}>
+          <div className="card-header flex items-center justify-between">
+            <h3><Truck size={16} className="inline mr-8" />Assigned Trip</h3>
+            {canReassignTrip && (
+              <button className="btn btn-outline btn-sm" onClick={() => setShowReassignModal(true)} disabled={saving}>
+                Change Assigned Trip
+              </button>
+            )}
+          </div>
+          <div className="card-body">
+            <div className="text-sm mb-4 flex items-center gap-8 flex-wrap">
+              <strong className="text-primary">{order.trips?.trip_number || 'Unknown Trip'}</strong>
+              <span className="text-secondary">({order.trips?.origin} ➔ {order.trips?.destination})</span>
+            </div>
+            
+            {tripHistory && tripHistory.length > 0 && (
+              <div className="mt-16 pt-16 border-t">
+                <h4 className="text-xs text-tertiary text-uppercase mb-12"><Clock size={12} className="inline mr-4" />Trip History</h4>
+                <div className="flex flex-col gap-12">
+                  {tripHistory.map((history) => (
+                    <div key={history.id} className="text-sm bg-surface p-12 br-8">
+                      <div className="flex justify-between mb-4">
+                        <strong>
+                          {history.prev_trip?.trip_number || 'None'} → {history.new_trip?.trip_number || 'Unknown'}
+                        </strong>
+                        <span className="text-xs text-secondary">{safeFormatDateTime(history.created_at)}</span>
+                      </div>
+                      <div className="text-secondary mb-4">Reason: {history.reason}</div>
+                      <div className="text-xs text-tertiary">Changed by: {history.admin?.name || 'Admin'}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      </ErrorBoundarySection>
+
+      {/* Package Details */}
+      <div className="card stagger-item mb-16" style={{ animationDelay: '300ms' }}>
+        <div className="card-header"><h3><Package size={16} className="inline mr-8" />Package Details</h3></div>
+        <div className="card-body p-16">
+          <div className="grid grid-3 gap-16">
+            <div><div className="text-xs text-tertiary" style={{ marginBottom: 2 }}>Description</div><div className="text-sm font-bold">{order.package_description || '—'}</div></div>
+
+            <div><div className="text-xs text-tertiary" style={{ marginBottom: 2 }}>Actual Weight</div>
+              <div className={`text-sm font-bold ${order.actual_weight ? 'text-success' : 'text-tertiary'}`}>
+                {order.actual_weight ? `${order.actual_weight} kg` : 'Not weighed'}
+              </div>
+            </div>
+          </div>
+          {order.trip_id && order.trips && (
+            <div className="trip-info-box mt-12 px-12 py-8">
+              <Truck size={14} className="inline mr-6" />
+              Trip: <strong>{order.trips.trip_number}</strong> ({order.trips.origin} ➔ {order.trips.destination})
+              {order.trips.departure_at && <div className="text-xs mt-4">Actual departure: {formatPhDateTime(order.trips.departure_at)}</div>}
+              {(order.trips.departure_at || order.trips.arrived_at || order.trips.estimated_arrival_at) && (
+                <div className="text-xs mt-4">
+                  {order.trips.arrived_at
+                    ? `Actual hub arrival: ${formatPhDateTime(order.trips.arrived_at)}`
+                    : order.trips.estimated_arrival_at
+                      ? `Estimated hub arrival: ${formatPhDateTime(order.trips.estimated_arrival_at)}`
+                      : 'Hub arrival: To be confirmed'}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Package QR Labels — one QR per physical box, so mishandling a
+          multi-box booking can be traced to a specific box rather than just
+          the tracking number as a whole. */}
+      <ErrorBoundarySection message="Package QR labels failed to load.">
+        <PackageQrLabels
+          order={order}
+          onOrderUpdate={(partial) => setOrder(prev => (prev ? { ...prev, ...partial } : prev))}
+        />
+      </ErrorBoundarySection>
+
+      {/* Shipment Evidence */}
+      {(resolvedPickupPhotos.length > 0 || resolvedDeliveryPhotos.length > 0) && (
+      <ErrorBoundarySection message="Shipment photos failed to load.">
+        <div className="card stagger-item mb-16" style={{ animationDelay: '360ms' }}>
+          <div className="card-header"><h3><Camera size={16} className="inline mr-8" />Shipment Evidence</h3></div>
+          <div className="card-body p-16">
+            
+            {/* Pickup Photos */}
+            {resolvedPickupPhotos.length > 0 && (
+              <div className="mb-24">
+                <h4 className="text-sm fw-700 mb-12 flex items-center gap-8">
+                  <Package size={14} /> Pickup Proofs
+                </h4>
+                <div className="gap-12" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))' }}>
+                  {resolvedPickupPhotos.map((url, i) => {
+                    const loadState = photoLoadState[i] || 'loading';
+                    const canOpen = loadState === 'loaded';
+                    return (
+                      <button key={`pickup-${i}`} onClick={() => { canOpen && setLightboxImages(resolvedPickupPhotos); setLightboxIndex(i); }} className="customer-proof-photo-btn" type="button" disabled={!canOpen}>
+                        <div className="customer-proof-photo-fallback">
+                          <Image size={20} />
+                          <span>{loadState === 'failed' ? 'Image unavailable' : `Photo ${i + 1}`}</span>
+                        </div>
+                        {canOpen && <div className="customer-proof-photo-preview" style={{ backgroundImage: `url("${url}")` }} />}
+                        {canOpen && <div className="customer-proof-photo-overlay"><Image size={12} color="white" /></div>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Delivery Photos */}
+            {resolvedDeliveryPhotos.length > 0 && (
+              <div>
+                <h4 className="text-sm fw-700 mb-12 flex items-center gap-8">
+                  <Check size={14} className="text-success" /> Delivery Proofs
+                </h4>
+                <div className="gap-12" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))' }}>
+                  {resolvedDeliveryPhotos.map((url, i) => {
+                    const loadState = deliveryPhotoLoadState[i] || 'loading';
+                    const canOpen = loadState === 'loaded';
+                    return (
+                      <button key={`delivery-${i}`} onClick={() => { canOpen && setLightboxImages(resolvedDeliveryPhotos); setLightboxIndex(i); }} className="customer-proof-photo-btn" type="button" disabled={!canOpen}>
+                        <div className="customer-proof-photo-fallback">
+                          <Image size={20} />
+                          <span>{loadState === 'failed' ? 'Image unavailable' : `Photo ${i + 1}`}</span>
+                        </div>
+                        {canOpen && <div className="customer-proof-photo-preview" style={{ backgroundImage: `url("${url}")` }} />}
+                        {canOpen && <div className="customer-proof-photo-overlay"><Image size={12} color="white" /></div>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Feature on Website — Delivered bookings only. Does not
+                require customer feedback; it publishes a delivery photo to
+                the public "Featured Shipments" gallery, a separate thing
+                from a customer's own review. */}
+            {order.status === 'Delivered' && (
+              <div className="flex justify-end mt-16 pt-16" style={{ borderTop: '1px solid var(--border)' }}>
+                <button
+                  type="button"
+                  className={`btn btn-sm ${order.featured_on_website ? 'btn-outline' : 'btn-secondary'} flex items-center gap-6`}
+                  onClick={() => setShowFeatureModal(true)}
+                >
+                  <Star size={14} className={order.featured_on_website ? 'text-warning' : ''} />
+                  {order.featured_on_website ? 'Manage Featured Shipment' : 'Feature Delivery on Website'}
+                </button>
+              </div>
+            )}
+
+          </div>
+        </div>
+      </ErrorBoundarySection>
+      )}
+
+      {/* Payment & Weight Management */}
+      <div className="card admin-section-card stagger-item" style={{ animationDelay: '420ms' }}>
+        <div className="card-header"><h3><CreditCard size={16} className="inline mr-8" />Payment & Details</h3></div>
+        <div className="card-body">
+          {order.status === ORDER_STATUS.CANCELLED ? (
+            <div className="alert-banner alert-banner-info mb-16">
+              This booking is cancelled. Its historical pricing and transaction history are preserved here; the Payment &amp; Refund Summary above is the authoritative cancellation settlement view.
+            </div>
+          ) : <div className="admin-payment-summary">
+            <div className="text-center">
+              <div className="text-xs text-tertiary" style={{ marginBottom: 2 }}>{computedDiscountAmount > 0 ? 'Original Fee' : 'Shipping Cost'}</div>
+              <div className="text-lg fw-700 text-primary">{settlementState === SETTLEMENT_STATE.UNPRICED ? '—' : formatMoney(computedShippingCost)}</div>
+            </div>
+            {computedDiscountAmount > 0 && (
+              <div className="text-center">
+                <div className="text-xs text-tertiary" style={{ marginBottom: 2 }}>Discount</div>
+                <div className="text-lg fw-700 text-error">− {formatMoney(computedDiscountAmount)}</div>
+              </div>
+            )}
+            {computedDiscountAmount > 0 && (
+              <div className="text-center">
+                <div className="text-xs text-tertiary" style={{ marginBottom: 2 }}>Final Fee</div>
+                <div className="text-lg fw-700 text-primary">{formatMoney(computedFinalFee)}</div>
+              </div>
+            )}
+            <div className="text-center">
+              <div className="text-xs text-tertiary" style={{ marginBottom: 2 }}>Amount Paid</div>
+              <div className="text-lg fw-700 text-success">{settlementState === SETTLEMENT_STATE.UNPRICED ? '—' : formatMoney(computedAmountPaid)}</div>
+            </div>
+            <div className="text-center">
+              <div className="text-xs text-tertiary" style={{ marginBottom: 2 }}>{isOverpaid ? 'Overpaid' : 'Balance'}</div>
+              <div className={`text-lg fw-700 ${settlementState === SETTLEMENT_STATE.UNPRICED ? 'text-tertiary' : isOverpaid ? 'text-warning' : computedRemainingBalance > 0 ? 'text-error' : 'text-success'}`}>
+                {settlementState === SETTLEMENT_STATE.UNPRICED ? '—' : isOverpaid ? `+${formatMoney(Math.abs(computedRemainingBalance))}` : formatMoney(computedRemainingBalance)}
+              </div>
+            </div>
+          </div>}
+
+          {/* Discount detail — admin-internal reason/notes/who-applied stay
+              here (never sent to the customer view). Amounts alone are what
+              the customer-facing card shows. */}
+          {computedDiscountAmount > 0 && (
+            <div className="mb-16 br-8 text-sm" style={{ padding: 12, border: '1px solid var(--border)', background: 'var(--bg-secondary)' }}>
+              <div className="flex items-center gap-8 fw-700 mb-4">
+                <Tag size={14} aria-hidden="true" /> Discount Applied
+              </div>
+              <div className="text-secondary">
+                Reason: <strong className="text-capitalize">{order.discount_reason}</strong>
+                {order.discount_reason === 'Other' && order.discount_notes && (
+                  <> — "{order.discount_notes}"</>
+                )}
+              </div>
+              {order.discount_applied_at && (
+                <div className="text-xs text-tertiary mt-4">
+                  Applied {safeFormatDateTime(order.discount_applied_at)}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="admin-order-payment-badges flex gap-8 flex-wrap mb-16">
+            {/* Ledger first, order column only as a fallback for pre-ledger
+                orders that have no transaction rows to read. */}
+            {paidMethods.length > 1 ? (
+              <span
+                className="badge badge-info"
+                title={`Paid via ${paidMethods.map(formatPaymentMethod).join(' + ')}`}
+              >
+                Mixed Methods: {paidMethods.map(formatPaymentMethod).join(' + ')}
+              </span>
+            ) : (paidMethods[0] || order.payment_method) ? (
+              <span className="badge badge-info">
+                {formatPaymentMethod(paidMethods[0] || order.payment_method)}
+              </span>
+            ) : null}
+            {order.payer_type && <span className="badge badge-info text-capitalize">Payer: {order.payer_type}</span>}
+            {/* Settlement is shown separately from status: status says where the
+                cargo is, this says where the money is. A delivered order with a
+                balance owing is a real, valid state.
+
+                An UNWEIGHED order has neither. It shows one badge saying so —
+                not `Unpaid` next to `Settled`, which is what a ₱0 balance on an
+                unpriced parcel used to render. Nothing is owed and nothing is
+                collected because nothing has been billed. */}
+            {order.status !== ORDER_STATUS.CANCELLED && (settlementState === SETTLEMENT_STATE.UNPRICED ? (
+              <span className="badge badge-warning">Not yet weighed — no price</span>
+            ) : computedDiscountAmount > 0 && computedFinalFee <= 0 ? (
+              // 100% discount: nothing was ever paid (payment_status stays
+              // 'unpaid' at the column level — see derive_payment_status) but
+              // nothing is owed either. One unambiguous badge instead of
+              // "Unpaid" next to "Settled".
+              <span className="badge badge-success">No Payment Due (Discount)</span>
+            ) : (
+              <>
+                {order.payment_status && <span className={`badge ${getOrderPaymentStatusDisplay(order.payment_status).badge}`}>{getOrderPaymentStatusDisplay(order.payment_status).label}</span>}
+                {settlementState === SETTLEMENT_STATE.SETTLED
+                  ? <span className="badge badge-success">Settled</span>
+                  : <span className="badge badge-error">{formatMoney(outstandingBalance(order))} Remaining Balance</span>}
+              </>
+            ))}
+            {order.status !== ORDER_STATUS.CANCELLED && order.promised_payment_date && <span className="badge badge-warning">Promised: {safeFormatDate(order.promised_payment_date)}</span>}
+          </div>
+
+
+          {order.notes && (
+            <div className="mt-16 text-sm text-secondary">
+              <strong>Notes:</strong> {order.notes}
+            </div>
+          )}
+
+          {/* Payment History Table */}
+          {paymentTransactions.length > 0 && (
+            <div className="mt-24">
+              <h4 className="fw-700 text-sm mb-12 flex items-center gap-8">
+                <CreditCard size={14} /> Payment History
+              </h4>
+              {/* Standard admin table shell — `.table-container` + `.data-table`,
+                  the same pair used by Orders, Customers, Trips and Activity
+                  Logs. `admin-payment-table` remains only as a hook for the
+                  receipt/reference cell, not for table chrome. */}
+              <div className="table-container">
+                <table className="data-table admin-payment-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Date</th>
+                      <th scope="col">Type</th>
+                      <th scope="col">Amount</th>
+                      <th scope="col">Method</th>
+                      <th scope="col">Status</th>
+                      <th scope="col">Receipt/Ref</th>
+                      <th scope="col">Recorded By</th>
+                      <th scope="col">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paymentTransactions.map(tx => {
+                      const statusInfo = getPaymentActivityStatusDisplay(tx, 'admin');
+                      const isAuto = isSystemGenerated(tx);
+                      return (
+                        <tr key={tx.id}>
+                          <td data-label="Date">
+                            {tx.payment_date ? safeFormatDate(tx.payment_date) : safeFormatDate(tx.created_at)}
+                            {!tx.payment_date && <span className="text-tertiary ml-4">{safeFormatTime(tx.created_at, {hour: '2-digit', minute:'2-digit'})}</span>}
+                          </td>
+                          <td data-label="Type">{tx.payment_type || 'Additional Payment'}</td>
+                          <td data-label="Amount" className={`fw-600 ${tx.is_refund ? 'text-error' : 'text-success'}`}>
+                            {tx.is_refund ? `-${formatMoney(Math.abs(Number(tx.amount || 0)))}` : formatMoney(parseFloat(tx.amount || 0))}
+                          </td>
+                          <td data-label="Method">{formatPaymentMethod(tx.payment_method)}</td>
+                          <td data-label="Status">
+                            <span className={`badge badge-${statusInfo.tone} badge-sm`}>{statusInfo.label}</span>
+                          </td>
+                          <td data-label="Receipt/Ref" className="payment-ref-cell">
+                            {tx.transaction_reference && (
+                              <button
+                                type="button"
+                                className="payment-ref-copy-btn"
+                                title={`Full ref: ${tx.transaction_reference}\nClick to copy`}
+                                onClick={() => {
+                                  navigator.clipboard.writeText(tx.transaction_reference);
+                                  toast.success('Reference copied');
+                                }}
+                              >
+                                <span className="text-xs">{truncateRef(tx.transaction_reference)}</span>
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-50" style={{ flexShrink: 0,}}><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                              </button>
+                            )}
+                            {tx.receipt_url && <ResolvedPhotoLink photo={tx.receipt_url} className="text-xs text-primary receipt-link"><Image size={12} /> View Receipt</ResolvedPhotoLink>}
+                            {tx.notes && tx.notes.trim() && !(/captured via paymongo/i.test(tx.notes)) && (
+                              <div className="text-xs text-tertiary mt-4" style={{ fontStyle: 'italic' }}>{tx.notes}</div>
+                            )}
+                          </td>
+                          <td data-label="Recorded By">
+                            {isAuto
+                              ? <span className="badge badge-info badge-sm payment-auto-badge">{fmtRecordedBy(tx.admin_name, 'admin')}</span>
+                              : <span>{tx.admin_name || 'System'}</span>
+                            }
+                          </td>
+                          <td data-label="Action">
+                            {!tx.is_refund
+                              && tx.payment_method === 'gcash'
+                              && tx.gcash_channel === 'paymongo'
+                              && ['paid', 'partial'].includes(tx.payment_status)
+                              && Number(tx.refundable_amount || 0) > 0.005 ? (
+                                <button type="button" className="btn btn-outline btn-sm" onClick={() => openRefundModal(tx.id)}>
+                                  <RotateCcw size={14} /> Refund
+                                </button>
+                              ) : !tx.is_refund
+                                && ['paid', 'partial'].includes(tx.payment_status)
+                                && !(tx.payment_method === 'gcash' && tx.gcash_channel === 'paymongo')
+                                && Number(tx.refundable_amount || 0) > 0.005 ? (
+                                  // No AUTOMATED refund path exists for Cash or a
+                                  // manually-recorded GCash payment — PayMongo has no
+                                  // record of either, so prepare_paymongo_refund()
+                                  // would reject it. This opens ManualRefundModal
+                                  // instead, which only RECORDS a return that has
+                                  // already happened — it never moves money itself.
+                                  <button
+                                    type="button"
+                                    className="btn btn-outline btn-sm"
+                                    onClick={() => openManualRefundModal(tx.id)}
+                                    title="Record that this Cash or manually-recorded GCash payment was already returned to the customer. This does not send any money."
+                                  >
+                                    <RotateCcw size={14} /> Record Manual Refund
+                                  </button>
+                                ) : <span className="text-tertiary text-xs">N/A</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {computedRemainingBalance > 0 && order.status !== 'Cancelled' && (
+            <div className="mt-20 pt-16 border-t border-color flex justify-end">
+              <button className="btn btn-primary btn-sm flex items-center gap-8" onClick={() => setShowPaymentModal(true)}>
+                <CreditCard size={16} /> Record Additional Payment
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Timestamps */}
+      <div className="flex justify-between mt-16 text-xs text-tertiary" style={{ padding: '0 4px' }}>
+        <span>Created: {safeFormatDateTime(order.created_at)}</span>
+        <span>Updated: {safeFormatDateTime(order.updated_at)}</span>
+      </div>
+
+      {/* Activity History — collapsible */}
+      {activityHistory.length > 0 && (
+        <div className="card admin-section-card stagger-item mt-16" style={{ animationDelay: '480ms' }}>
+          <div className="card-header flex items-center justify-between" style={{ paddingBottom: activityCollapsed ? 16 : 8 }}>
+            <h3><Clock size={16} className="inline mr-8" />Activity History</h3>
+            <button
+              type="button"
+              className="btn-icon text-secondary"
+              aria-label={activityCollapsed ? 'Expand activity history' : 'Collapse activity history'}
+              aria-expanded={!activityCollapsed}
+              onClick={() => setActivityCollapsed((c) => !c)}
+            >
+              <motion.div animate={{ rotate: activityCollapsed ? 0 : 180 }} transition={{ duration: 0.2 }}>
+                <ChevronDown size={16} />
+              </motion.div>
+              <span className="sr-only">{activityCollapsed ? 'Show' : 'Hide'}</span>
+            </button>
+          </div>
+          <AnimatePresence initial={false}>
+            {!activityCollapsed && (
+              <motion.div
+                key="activity-body"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2, ease: 'easeInOut' }}
+                style={{ overflow: 'hidden' }}
+              >
+                <div className="card-body" style={{ paddingTop: 8 }}>
+                  <div className="relative" style={{paddingLeft: 20}}>
+                    {/* Vertical line */}
+                    <div className="absolute" style={{left: 7, top: 8, bottom: 8, width: 2, background: 'var(--border)', borderRadius: 'var(--radius-full)'}} />
+                    {activityHistory.map((log) => (
+                      <div key={log.id} className="relative" style={{marginBottom: 16, paddingLeft: 20}}>
+                        {/* Dot */}
+                        <div className="absolute" style={{left: -13, top: 4, width: 10, height: 10,
+                          borderRadius: '50%', background: 'var(--primary)', border: '2px solid var(--surface)',
+                          boxShadow: '0 0 0 2px var(--primary)',
+                        }} />
+                        <div className="text-xs text-tertiary mb-2">
+                          {safeFormatTime(log.created_at, { hour: '2-digit', minute: '2-digit' })}
+                          {' · '}
+                          {safeFormatDate(log.created_at, { month: 'short', day: 'numeric' })}
+                        </div>
+                        <div className="text-sm">
+                          <strong>{log.admin_name}</strong>
+                          {' '}
+                          <span className="text-secondary">{log.action}</span>
+                        </div>
+                        {log.details && (
+                          <div className="text-xs text-tertiary mt-2">{log.details}</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
+
+      <FeatureShipmentModal
+        isOpen={showFeatureModal}
+        onClose={() => setShowFeatureModal(false)}
+        order={order}
+        resolvedPickupPhotos={resolvedPickupPhotos}
+        resolvedDeliveryPhotos={resolvedDeliveryPhotos}
+        onSave={handleSaveFeature}
+        saving={savingFeature}
+      />
+
+      {/* Modals */}
+      {showPickupModal && (
+        <PickupModal order={order} onClose={() => setShowPickupModal(false)} onSave={handlePickupSave} onPreparePayment={handlePreparePickupPayment} pricePerKilo={pickupPricePerKilo} />
+      )}
+      {showTripModal && (
+        <TripAssignModal order={order} onClose={() => setShowTripModal(false)} onAssign={handleTripAssign} />
+      )}
+      {showReassignModal && (
+        <TripReassignModal order={order} onClose={() => setShowReassignModal(false)} onReassign={handleTripReassign} />
+      )}
+      {showAssignCustomerModal && (
+        <AssignCustomerModal order={order} onClose={() => setShowAssignCustomerModal(false)} onAssign={handleAssignCustomer} />
+      )}
+      {showPaymentModal && (
+        <AdditionalPaymentModal
+          order={order}
+          remainingBalance={computedRemainingBalance}
+          // Refresh when the modal closes, not when the GCash payment lands.
+          // Reloading on confirmation showed the full-page spinner, which
+          // unmounted this modal and reopened it blank — hiding the
+          // "Payment received" state and its Done button. Deferring it also
+          // keeps the balance fixed while the modal is open, exactly as on
+          // Unsettled Deliveries.
+          onClose={() => { setShowPaymentModal(false); void loadOrder(true, { silent: true }); }}
+          onPaymentConfirmed={() => loadOrder(true, { silent: true })}
+          onSave={handleAdditionalPayment}
+        />
+      )}
+      {refundPayment && (
+        <RefundPaymentModal
+          transaction={refundPayment}
+          order={order}
+          onClose={() => {
+            setRefundPayment(null);
+            void loadOrder(true, { silent: true });
+          }}
+          onSuccess={async (result) => {
+            setRefundPayment(null);
+            // The database saves the activity in the refund transaction.
+            await loadOrder();
+            const isCompleted = result?.status === 'succeeded' && result?.ledgerReconciled === true;
+            const isFailed = result?.status === 'failed';
+            if (isCompleted) {
+              toast.success('Refund confirmed. PayMongo confirmed success and the order’s financial totals were updated.');
+            } else if (isFailed) {
+              toast.error(result?.message || 'Refund failed. PayMongo did not return the money, and no refund was deducted from the order’s collected total.');
+            } else {
+              toast.info(result?.message || 'Refund submitted. It is not completed until PayMongo confirms it as succeeded.');
+            }
+          }}
+        />
+      )}
+      {manualRefundPayment && (
+        <ManualRefundModal
+          transaction={manualRefundPayment}
+          order={order}
+          onClose={() => setManualRefundPayment(null)}
+          onSuccess={async (result) => {
+            setManualRefundPayment(null);
+            // No client-side logPayment() here on purpose: record_manual_refund()
+            // writes the activity_logs entry itself, inside the same database
+            // transaction as the refund row — the same pattern as
+            // review_order_cancellation(). A second, client-side log call here
+            // would duplicate that entry, and could be lost if the tab closes
+            // right after the request succeeds.
+            await loadOrder();
+            toast.success(result?.message || 'Manual refund recorded.');
+          }}
+        />
+      )}
+      {settlementModalMode && cancellationSettlement && (
+        <CancellationSettlementModal
+          order={order}
+          summary={cancellationSettlement}
+          amendment={settlementModalMode === 'amend'}
+          onClose={() => setSettlementModalMode(null)}
+          onSuccess={async result => {
+            setSettlementModalMode(null);
+            setCancellationSettlement(result);
+            await loadOrder(true, { silent: true });
+            toast.success(settlementModalMode === 'amend'
+              ? 'Settlement decision amended and preserved in durable history.'
+              : 'Settlement decision recorded. No money was sent by this action.');
+          }}
+        />
+      )}
+      {showDeliveryModal && (
+        <DeliveryModal order={order} onClose={() => setShowDeliveryModal(false)} onSave={handleDeliverySave} />
+      )}
+      {showScannerModal && (
+        <QrScannerModal
+          initialOrder={order}
+          onClose={() => {
+            setShowScannerModal(false);
+            void loadOrder(true, { silent: true });
+          }}
+        />
+      )}
+      {showDispatchScannerModal && (
+        <QrScannerModal
+          initialOrder={order}
+          mode="dispatch"
+          onDispatchComplete={handleDispatchComplete}
+          onClose={() => {
+            setShowDispatchScannerModal(false);
+            void loadOrder(true, { silent: true });
+          }}
+        />
+      )}
+      {showCancelConfirm && (
+        <ReasonModal
+          isOpen={showCancelConfirm}
+          onClose={() => setShowCancelConfirm(false)}
+          onConfirm={handleCancel}
+          loading={saving}
+          title="Cancel Order"
+          description="This cannot be undone. Your reason is saved on the booking, recorded in the activity log, and sent to the customer."
+          label="Reason for Cancelling *"
+          placeholder="e.g. Customer called to cancel; parcel was never dropped off."
+          submitLabel="Cancel Order"
+        />
+      )}
+
+      {lightboxIndex >= 0 && lightboxImages.length > 0 && (
+        <ImageLightbox images={lightboxImages} initialIndex={lightboxIndex} onClose={() => setLightboxIndex(-1)} />
+      )}
+      {showDeclineCancelModal && (
+        <ReasonModal
+          isOpen={showDeclineCancelModal}
+          onClose={() => setShowDeclineCancelModal(false)}
+          onConfirm={(notes) => handleReviewCancellation(false, notes)}
+          loading={reviewingCancellation}
+          title="Decline Cancellation Request"
+          description={`This booking goes back to "${order.cancellation_details?.previous_status || 'Pending'}" and keeps its trip slot. Your note is sent to the customer, so say why the request cannot be accommodated.`}
+          label="Reason for Declining *"
+          placeholder="e.g. The parcel is already loaded on today's manifest and departs in an hour."
+          submitLabel="Decline Request"
+        />
+      )}
+      {/* Approving takes a note like declining does. It used to be a bare
+          confirm, which meant the one decision that actually ends a booking was
+          the only one leaving no admin remark behind — the customer's reason
+          was on the record, ours was not. */}
+      {showApproveCancellationModal && (
+        <ReasonModal
+          isOpen={showApproveCancellationModal}
+          onClose={() => setShowApproveCancellationModal(false)}
+          onConfirm={(notes) => handleReviewCancellation(true, notes)}
+          loading={reviewingCancellation}
+          title="Approve Cancellation Request?"
+          description={`${order.tracking_number} will be marked Cancelled and ${order.profiles?.name || 'the customer'} will be notified. This cannot be undone. Your note is saved on the booking and sent to them.`}
+          label="Note for the record *"
+          placeholder="e.g. Confirmed by phone; parcel never dropped off, nothing to return."
+          submitLabel="Approve & Cancel Order"
+        />
+      )}
+      {showRejectModal && (
+        <RejectModal
+          isOpen={showRejectModal}
+          onClose={() => setShowRejectModal(false)}
+          onConfirm={(reason) => {
+            handleRejectReview(reason);
+            setShowRejectModal(false);
+          }}
+          loading={saving}
+        />
+      )}
+
+      <PaymentResultModal
+        isOpen={!!paymentResultModal}
+        onClose={() => setPaymentResultModal(null)}
+        variant={paymentResultModal?.variant || 'success'}
+        amount={paymentResultModal?.amount}
+        trackingNumber={order?.tracking_number}
+        paymentMethod={paymentResultModal?.paymentMethod || 'GCash'}
+        onRetry={
+          paymentResultModal?.variant === 'processing'
+            ? () => { setPaymentResultModal(null); loadOrder(); }
+            : undefined
+        }
+      />
+    </div>
+  );
+};
+
+/**
+ * ReasonModal — a modal whose whole job is to make someone say WHY.
+ *
+ * Generalised out of the old out-of-coverage RejectModal when the cancellation
+ * review needed the same thing. Both decisions land in the customer's
+ * notification and in the activity log, and a decision recorded without its
+ * reason is the case these screens exist to prevent.
+ */
+const ReasonModal = ({
+  isOpen,
+  onClose,
+  onConfirm,
+  loading,
+  title,
+  description,
+  label,
+  placeholder,
+  submitLabel,
+}) => {
+  const [reason, setReason] = useState('');
+  const [error, setError] = useState('');
+
+  if (!isOpen) return null;
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!reason.trim()) {
+      setError('Please enter a reason.');
+      return;
+    }
+    onConfirm(reason.trim());
+  };
+
+  return (
+    <FocusTrap active>
+      <div className="modal-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-labelledby="reason-modal-title">
+        <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
+          <div className="modal-header">
+            <h3 id="reason-modal-title">{title}</h3>
+            <button type="button" className="btn-icon btn-ghost" onClick={onClose} disabled={loading} aria-label="Close modal">
+              <X size={20} />
+            </button>
+          </div>
+          <form onSubmit={handleSubmit}>
+            <div className="modal-body">
+              {error && (
+                <div className="br-8" style={{ color: 'var(--error-text)', background: 'var(--error-bg)', border: '1px solid var(--error)', padding: '8px 12px', fontSize: 'var(--text-14)', marginBottom: 12}}>
+                  {error}
+                </div>
+              )}
+              <p className="text-secondary text-sm mb-16">{description}</p>
+              <div className="form-group">
+                <label className="form-label" htmlFor="reason-modal-input">{label}</label>
+                <textarea
+                  id="reason-modal-input"
+                  className="form-textarea"
+                  rows={4}
+                  placeholder={placeholder}
+                  value={reason}
+                  onChange={e => { setReason(e.target.value); setError(''); }}
+                  required
+                />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button type="button" className="btn btn-outline" onClick={onClose} disabled={loading}>Cancel</button>
+              <button type="submit" className="btn btn-danger" disabled={loading || !reason.trim()}>
+                {loading ? <Loader size={16} className="animate-spin" /> : submitLabel}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </FocusTrap>
+  );
+};
+
+const RejectModal = ({ isOpen, onClose, onConfirm, loading }) => (
+  <ReasonModal
+    isOpen={isOpen}
+    onClose={onClose}
+    onConfirm={onConfirm}
+    loading={loading}
+    title="Reject Pickup Request"
+    description="Please provide the reason for rejecting this out-of-coverage pickup request. This will be sent as a notification to the customer."
+    label="Rejection Reason *"
+    placeholder="e.g. Location is outside our delivery zone and no driver is available."
+    submitLabel="Reject Request"
+  />
+);
+
+/**
+ * Shown both in the "Cancellation Request Review" action bar and in the
+ * static "Cancellation Details" card on an already-cancelled order — same
+ * numbers, same component, so the two views can never drift apart.
+ *
+ * "Eligible for provider refund" (the per-row max PayMongo will accept) is
+ * deliberately labelled separately from any notion of an "approved" amount —
+ * the maximum technically refundable is not automatically what the business
+ * has decided to return; the admin still chooses the actual amount inside
+ * RefundPaymentModal.
+ */
+const CancellationPaymentSummary = ({
+  finalCharge,
+  grossCollected,
+  refundSucceeded,
+  refundPending,
+  refundFailed,
+  eligibleRefundTx,
+  unrefundablePaidTx,
+  onSelectRefund,
+  onSelectManualRefund,
+  settlementSummary = null,
+  historicalPromiseDate = null,
+  onManageDecision = null,
+}) => {
+  const netCollected = grossCollected - refundSucceeded;
+  return (
+    <div
+      className="admin-refund-summary br-8"
+      style={{ background: 'var(--bg-secondary)', padding: '12px 14px', overflowWrap: 'anywhere' }}
+    >
+      {settlementSummary ? (
+        <CancellationSettlementSummary
+          summary={settlementSummary}
+          historicalPromiseDate={historicalPromiseDate}
+          admin
+          actions={onManageDecision ? (
+            <button type="button" className="btn btn-outline btn-sm" onClick={onManageDecision}>
+              {settlementSummary.has_confirmed_decision ? 'Amend Settlement Decision' : 'Record Settlement Decision'}
+            </button>
+          ) : null}
+        />
+      ) : (
+        <>
+          <div className="text-xs fw-700 text-uppercase text-tertiary mb-8">Payment &amp; Refund Summary</div>
+          <div className="grid grid-2 gap-8" style={{ fontSize: 'var(--text-13)' }}>
+        <div>
+          <div className="text-tertiary">Original / final charge</div>
+          <div className="fw-700">{formatMoney(finalCharge)}</div>
+        </div>
+        <div>
+          <div className="text-tertiary">Gross amount collected</div>
+          <div className="fw-700">{formatMoney(grossCollected)}</div>
+        </div>
+        <div>
+          <div className="text-tertiary">Successfully refunded</div>
+          <div className="fw-700" style={{ color: refundSucceeded > 0 ? 'var(--error-text)' : undefined }}>{formatMoney(refundSucceeded)}</div>
+        </div>
+        <div>
+          <div className="text-tertiary">Net collected</div>
+          <div className="fw-700">{formatMoney(netCollected)}</div>
+        </div>
+        {refundPending > 0 && (
+          <div>
+            <div className="text-tertiary">Refunds pending / awaiting confirmation</div>
+            <div className="fw-700" style={{ color: 'var(--warning-dark)' }}>{formatMoney(refundPending)}</div>
+          </div>
+        )}
+        {refundFailed > 0 && (
+          <div>
+            <div className="text-tertiary">Failed refund attempts</div>
+            <div className="fw-700" style={{ color: 'var(--error-text)' }}>{formatMoney(refundFailed)}</div>
+          </div>
+        )}
+          </div>
+        </>
+      )}
+
+      {eligibleRefundTx.length > 0 && (
+        <div className="mt-12">
+          <div className="text-xs text-tertiary mb-4">
+            Eligible for provider refund per transaction (technical maximum — not the amount approved to return):
+          </div>
+          <div className="flex flex-col gap-8">
+            {eligibleRefundTx.map(tx => (
+              <div key={tx.id} className="flex items-center justify-between gap-8 flex-wrap" style={{ fontSize: 'var(--text-13)' }}>
+                <span>
+                  {formatPaymentMethod(tx.payment_method)} · paid {formatMoney(Number(tx.amount || 0))} · up to {formatMoney(Number(tx.refundable_amount || 0))} refundable
+                </span>
+                <button type="button" className="btn btn-outline btn-sm" onClick={() => onSelectRefund(tx)}>
+                  <RotateCcw size={14} /> Start Refund
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {unrefundablePaidTx.length > 0 && (
+        <div className="mt-12">
+          <div className="text-xs flex items-start gap-4 mb-8" style={{ color: 'var(--warning-dark)' }}>
+            <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: 1 }} />
+            <span>
+              {unrefundablePaidTx.length === 1 ? 'One payment' : `${unrefundablePaidTx.length} payments`} on this order
+              ({unrefundablePaidTx.map(tx => formatPaymentMethod(tx.payment_method)).join(', ')}) cannot be refunded
+              through PayMongo — it has no record of a Cash or manually-recorded GCash payment. Physically return the
+              money first, then use Record Manual Refund below to log it.
+            </span>
+          </div>
+          <div className="flex flex-col gap-8">
+            {unrefundablePaidTx.filter(tx => Number(tx.refundable_amount || 0) > 0.005).map(tx => (
+              <div key={tx.id} className="flex items-center justify-between gap-8 flex-wrap" style={{ fontSize: 'var(--text-13)' }}>
+                <span>
+                  {formatPaymentMethod(tx.payment_method)} · paid {formatMoney(Number(tx.amount || 0))} · up to {formatMoney(Number(tx.refundable_amount || 0))} refundable
+                </span>
+                <button type="button" className="btn btn-outline btn-sm" onClick={() => onSelectManualRefund(tx)}>
+                  <RotateCcw size={14} /> Record Manual Refund
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default AdminOrderDetailPage;

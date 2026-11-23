@@ -1,0 +1,481 @@
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { Outlet, NavLink, useNavigate, Link, useLocation } from 'react-router-dom';
+import { Bell, User, LogOut, Headset, Bot, Package, MapPin, Plus, Home, ChevronRight } from 'lucide-react';
+import BrandLockup from '../ui/BrandLogo';
+import ThemeToggle from '../ui/ThemeToggle';
+import { useAuth } from '../../contexts/AuthContext';
+import { supabase } from '../../lib/supabase';
+import { getUnreadNotificationCount } from '../../lib/database';
+import { NOTIFICATIONS_CHANGED_EVENT } from '../../lib/notification-events';
+import { useToast } from '../../hooks/useToast';
+import { usePushNotification } from '../../hooks/usePushNotification';
+import ErrorBoundary from '../ui/ErrorBoundary';
+import ConfirmModal from '../ui/ConfirmModal';
+import OnboardingModal from '../ui/OnboardingModal';
+import { motion, AnimatePresence } from 'framer-motion';
+import PageTransition from '../ui/PageTransition';
+import { clearCustomerPageCache } from '../../lib/customerPageCache';
+import { watchCustomerKeyboardVisibility } from '../../lib/customerKeyboardVisibility';
+
+// The skip link's target. Exactly one <main> renders at a time — booking opts
+// out of PageTransition (see below) — so this id is never duplicated in the
+// document. Held in one place so the link and both branches cannot drift apart.
+const MAIN_CONTENT_ID = 'customer-main-content';
+
+const desktopNavItems = [
+  { to: '/customer/book', icon: Plus, label: 'Book Shipment' },
+  { to: '/customer/orders', icon: Package, label: 'Bookings' },
+  { to: '/customer/trips', icon: MapPin, label: 'Trips' },
+  { to: '/customer/support', icon: Headset, label: 'Chat Support' },
+];
+
+const bottomNavItems = [
+  { to: '/customer', icon: Home, label: 'Home', end: true },
+  { to: '/customer/orders', icon: Package, label: 'Bookings' },
+  { to: '/customer/book', icon: Plus, label: 'Book', isBookTab: true },
+  { to: '/customer/trips', icon: MapPin, label: 'Trips' },
+  { to: '/customer/profile', icon: User, label: 'Profile' },
+];
+
+const pagesWithInFlowSupport = new Set([
+  '/customer/book',
+  '/customer/track',
+  '/customer/payments',
+  '/customer/profile',
+  '/customer/help-guidelines',
+  '/customer/personal-info',
+  '/customer/change-password',
+  '/customer/change-email',
+]);
+
+const getInitials = (name) => {
+  if (!name || !name.trim()) return '?';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0][0].toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+};
+
+const getDisplayName = (profile, userEmail) => {
+  if (profile?.name && profile.name.trim()) return profile.name;
+  if (userEmail) return userEmail.split('@')[0];
+  return 'Account';
+};
+
+const CustomerLayout = () => {
+  const { user, userProfile, logout } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef(null);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const toast = useToast();
+  const chatFabRef = useRef(null);
+
+  // Tuck the chat bubble away while scrolling down and bring it back on the
+  // first scroll up. A class on the element, not state: scrolling must never
+  // re-render this layout and the page under it.
+  useEffect(() => {
+    let lastY = window.scrollY;
+    let frame = 0;
+    const onScroll = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        const y = window.scrollY;
+        const fab = chatFabRef.current;
+        if (fab && Math.abs(y - lastY) > 6) {
+          fab.classList.toggle('is-tucked', y > lastY && y > 120);
+          lastY = y;
+        }
+      });
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      cancelAnimationFrame(frame);
+    };
+  }, []);
+
+  // A new page starts at the top, where the bubble belongs.
+  useEffect(() => {
+    chatFabRef.current?.classList.remove('is-tucked');
+  }, [location.pathname]);
+
+  const refreshUnreadCount = useCallback(() => {
+    if (!user) return;
+    getUnreadNotificationCount(user.id)
+      .then(count => setUnreadCount(count))
+      .catch(() => {});
+  }, [user]);
+
+  // ── Fetch unread count + listen for new notifications in real-time ────────
+  useEffect(() => {
+    if (!user) return;
+
+    // Initial count
+    refreshUnreadCount();
+
+    // Real-time listener for new notifications
+    const channel = supabase.channel(`notif_badge_${user.id}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'notifications',
+        filter: `user_id=eq.${user.id}`,
+      }, () => {
+        setUnreadCount(prev => prev + 1);
+      })
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'notifications',
+        filter: `user_id=eq.${user.id}`,
+      }, (payload) => {
+        // When a notification is marked as read, decrement
+        if (payload.new.is_read && !payload.old.is_read) {
+          setUnreadCount(prev => Math.max(0, prev - 1));
+        }
+      })
+      .subscribe();
+
+    window.addEventListener(NOTIFICATIONS_CHANGED_EVENT, refreshUnreadCount);
+
+    return () => {
+      window.removeEventListener(NOTIFICATIONS_CHANGED_EVENT, refreshUnreadCount);
+      supabase.removeChannel(channel);
+    };
+  }, [user, refreshUnreadCount]);
+
+  // ── Keyboard visibility listener (Hides bottom nav when typing on mobile) ──
+  useEffect(() => watchCustomerKeyboardVisibility(window), []);
+
+  // Reset badge when user visits the notifications page
+  useEffect(() => {
+    if (location.pathname === '/customer/notifications') {
+      // Re-fetch actual count (in case some were already read)
+      refreshUnreadCount();
+    }
+  }, [location.pathname, refreshUnreadCount]);
+
+  // ── Push Notifications: unified Android (FCM) + iOS (Web Push) ────────
+  const handleForegroundPush = useCallback((msg) => {
+    toast.info(msg.body || msg.title);
+  }, [toast]);
+
+  const {
+    enablePush,
+    permissionState,
+    isIosDevice,
+    isIosInstalled,
+    iosPushSupported,
+  } = usePushNotification(user?.id, handleForegroundPush);
+
+  // Soft prompt, shown instead of calling Notification.requestPermission() on a
+  // timer. Safari only honours a permission request that originates in a user
+  // gesture; fired from setTimeout it does not merely fail, on several iOS
+  // versions it resolves as "denied" — and iOS gives no in-app way back from
+  // denied, so a single silent auto-prompt could permanently kill push for that
+  // user. Chrome likewise penalises gestureless prompts with a quieter UI.
+  // The Enable button below supplies the gesture.
+  const [pushPromptDismissed, setPushPromptDismissed] = useState(
+    () => { try { return localStorage.getItem('push_prompt_dismissed') === '1'; } catch { return false; } }
+  );
+  const [pushPromptBusy, setPushPromptBusy] = useState(false);
+
+  const dismissPushPrompt = useCallback(() => {
+    setPushPromptDismissed(true);
+    try { localStorage.setItem('push_prompt_dismissed', '1'); } catch { /* private mode */ }
+  }, []);
+
+  const handleEnablePush = useCallback(async () => {
+    setPushPromptBusy(true);
+    try {
+      const result = await enablePush();
+      if (result?.success) toast.success('Notifications on — we’ll keep you posted.');
+      else if (result?.reason === 'denied') toast.error('Permission denied. You can turn it on in your device settings.');
+      else toast.error('Could not enable notifications. You can try again from Profile.');
+    } finally {
+      setPushPromptBusy(false);
+      dismissPushPrompt();
+    }
+  }, [enablePush, toast, dismissPushPrompt]);
+
+  // Only offer it where it can actually succeed: never in an iOS browser tab
+  // (Web Push needs the installed PWA) and never below iOS 16.4.
+  const canShowPushPrompt =
+    !!user &&
+    permissionState === 'default' &&
+    !pushPromptDismissed &&
+    (!isIosDevice || (isIosInstalled && iosPushSupported));
+
+  // Foreground push from SW message bus (sw.js PUSH_NOTIFICATION event)
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    const handler = (event) => {
+      if (event.data?.type === 'PUSH_NOTIFICATION') {
+        toast.info(event.data.body || event.data.title);
+      }
+    };
+    navigator.serviceWorker.addEventListener('message', handler);
+    return () => navigator.serviceWorker.removeEventListener('message', handler);
+  }, [toast]);
+
+
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+
+  const handleLogout = async () => {
+    setShowLogoutConfirm(false);
+    setDropdownOpen(false);
+    clearCustomerPageCache();
+    await logout();
+    navigate('/login');
+  };
+
+  return (
+    <>
+    <OnboardingModal />
+    <div className={`customer-layout-v2${location.pathname === '/customer/book' ? ' booking-scroll-shell' : ''}`}>
+      <a href={`#${MAIN_CONTENT_ID}`} className="skip-link">Skip to main content</a>
+      {/* ─── Top Navigation Bar ─── */}
+      <header className="customer-navbar">
+        <div className="customer-navbar-inner">
+          {/* Left: Logo */}
+          <Link to="/customer" className="customer-navbar-logo">
+            <BrandLockup size={40} />
+          </Link>
+
+          {/* Center: Desktop Nav Links */}
+          <nav className="customer-navbar-links" aria-label="Main navigation">
+            {desktopNavItems.map(item => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={({ isActive }) =>
+                  `customer-nav-link ${isActive ? 'active' : ''}`
+                }
+              >
+                <item.icon size={16} />
+                {item.label}
+              </NavLink>
+            ))}
+          </nav>
+
+          {/* Right: Icons + Avatar */}
+          <div className="customer-navbar-right">
+            <ThemeToggle />
+            <Link
+              to="/customer/notifications"
+              className="customer-nav-icon-btn"
+              title="Notifications"
+              aria-label="Notifications"
+            >
+              <Bell size={20} />
+              {unreadCount > 0 && (
+                <span className="notification-badge" aria-live="polite" aria-atomic="true">{unreadCount > 9 ? '9+' : unreadCount}</span>
+              )}
+            </Link>
+
+            {/* Profile Dropdown */}
+            <div className="relative" ref={dropdownRef}>
+              <button
+                onClick={() => setDropdownOpen(!dropdownOpen)}
+                className="customer-avatar-btn"
+                title="Account"
+                aria-label="Open account menu"
+                aria-haspopup="menu"
+                aria-expanded={dropdownOpen}
+              >
+                <div className="customer-avatar">
+                  <User size={20} />
+                </div>
+              </button>
+
+              <AnimatePresence>
+                {dropdownOpen && (
+                  <motion.div
+                    className="customer-dropdown"
+                    role="menu"
+                    initial={{ opacity: 0, scale: 0.95, y: -8 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95, y: -6 }}
+                    transition={{ duration: 0.15, ease: 'easeOut' }}
+                  >
+                    <div className="customer-dropdown-header">
+                      <div className="fw-600 text-sm">
+                        {getDisplayName(userProfile, user?.email)}
+                      </div>
+                      <div className="text-xs text-secondary mt-2">
+                        {user?.email}
+                      </div>
+                    </div>
+                    <div className="p-8">
+                      <Link
+                        to="/customer/profile"
+                        onClick={() => setDropdownOpen(false)}
+                        className="customer-dropdown-item"
+                        role="menuitem"
+                      >
+                        <User size={16} /> My Profile
+                        <ChevronRight size={14} className="ml-auto" style={{ opacity: 0.4 }} />
+                      </Link>
+                      <button onClick={() => { setDropdownOpen(false); setShowLogoutConfirm(true); }} className="customer-dropdown-item danger" role="menuitem">
+                        <LogOut size={16} /> Logout
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* ─── Push soft prompt ───
+          Deliberately a button, not an automatic request: the browser prompt is
+          only raised from this click, which is the user gesture Safari requires. */}
+      {canShowPushPrompt && (
+        <div className="customer-main" style={{ paddingBottom: 0 }}>
+          <div className="alert-banner alert-banner-info push-prompt-banner" role="region" aria-label="Notification settings">
+            <Bell size={18} aria-hidden="true" />
+            <div className="push-prompt-copy">
+              <div className="fw-700">Get shipment updates</div>
+              <div className="text-sm text-secondary">
+                Know the moment your cargo is picked up, in transit, and delivered.
+              </div>
+            </div>
+            <div className="push-prompt-actions flex items-center gap-8">
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={dismissPushPrompt}
+                disabled={pushPromptBusy}
+              >
+                Not now
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={handleEnablePush}
+                disabled={pushPromptBusy}
+                aria-busy={pushPromptBusy}
+              >
+                {pushPromptBusy ? 'Enabling…' : 'Enable'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Page Content ─── */}
+      {location.pathname === '/customer/book' ? (
+        <>
+          {/* A separate dock holds booking progress above the form scroller
+              during keyboard focus; it has no layout effect at rest. */}
+          <div className="booking-progress-dock" />
+          <main id={MAIN_CONTENT_ID} className="w-full customer-main customer-main--booking" key={location.pathname} tabIndex={-1}>
+            <ErrorBoundary><Outlet /></ErrorBoundary>
+          </main>
+        </>
+      ) : (
+        <PageTransition as="main" id={MAIN_CONTENT_ID} className="customer-main" key={location.pathname} tabIndex={-1} initial={false}>
+          <ErrorBoundary><Outlet /></ErrorBoundary>
+        </PageTransition>
+      )}
+
+      {/* ─── Floating chat support bubble (mobile only) ───
+          Keep it off pages that provide an in-flow support link so it cannot
+          cover booking controls, forms, or other task content.
+
+          Mobile-only is a media query rather than a matchMedia hook on
+          purpose. A JS breakpoint re-renders this whole layout — navbar,
+          bottom nav and the entire routed page beneath it — on every rotation
+          and every resize tick, to decide something the compositor already
+          knows. The FAB is one <a>; hiding it in CSS costs nothing at all.
+
+          A plain Link, not a modal: mounting SupportChatPage over the DOM
+          means its realtime subscription, its message list and its composer
+          all live on top of whatever page the customer is on. The route
+          already exists and already has its own transition. */}
+      {location.pathname !== '/customer/support' && !pagesWithInFlowSupport.has(location.pathname) && (
+        // Icon-only, so the aria-label IS the accessible name — nothing on
+        // screen conveys what this opens. It names the bot rather than saying
+        // "chat" alone, which is what a screen-reader user hears.
+        <Link
+          ref={chatFabRef}
+          to="/customer/support"
+          className="customer-chat-fab"
+          aria-label="Ask CargoMate — chat support"
+          title="Ask CargoMate — chat support"
+        >
+          <span className="customer-chat-fab-inner">
+            <Headset size={24} aria-hidden="true" />
+          </span>
+        </Link>
+      )}
+    </div>
+    {/* Keep one viewport-fixed tab bar outside the booking scroll shell. The
+        shell changes size for keyboard focus; the tab bar must not inherit
+        that route-specific positioning when Book opens. */}
+    <nav className="customer-bottom-nav" aria-label="Customer navigation">
+        <div className="customer-bottom-nav-inner">
+          {bottomNavItems.map(item => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.end}
+              aria-label={item.isBookTab ? 'Place order / Book shipment' : undefined}
+              className={({ isActive }) =>
+                `customer-bottom-tab ${isActive ? 'active' : ''} ${item.isBookTab ? 'book-tab' : ''}`
+              }
+            >
+              {item.isBookTab ? (
+                <div className="book-tab-icon" aria-hidden="true">
+                  <item.icon size={22} />
+                </div>
+              ) : (
+                <>
+                  {/* Wrapper retained: it keeps the icon a non-direct child, which
+                      viewport-hardening.css's `.customer-bottom-tab > svg` rule
+                      depends on. No bottomNavItems entry ever set hasBadge, so the
+                      unread badge that used to be rendered here was unreachable —
+                      the count is shown on the navbar bell, which is visible on
+                      mobile too. */}
+                  <div className="relative inline-flex">
+                    <item.icon size={20} />
+                  </div>
+                  <span>{item.label}</span>
+                </>
+              )}
+            </NavLink>
+          ))}
+        </div>
+      </nav>
+    <ConfirmModal
+      isOpen={showLogoutConfirm}
+      onClose={() => setShowLogoutConfirm(false)}
+      onConfirm={handleLogout}
+      title="Sign Out"
+      message="You are about to sign out of your account. You can sign back in at any time to access your active bookings and shipment tracking."
+      confirmLabel="Sign Out"
+      variant="danger"
+      icon={LogOut}
+    />
+
+
+    </>
+  );
+
+};
+
+export default CustomerLayout;

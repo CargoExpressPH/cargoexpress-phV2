@@ -1,0 +1,385 @@
+import { useState, useRef, useEffect } from 'react';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
+import {
+  Eye, EyeOff, AlertTriangle, CheckCircle2, Mail, Lock,
+} from 'lucide-react';
+import usePageTitle from '../../hooks/usePageTitle';
+import { logAuth } from '../../lib/activityLog';
+import FieldError from '../../components/ui/FieldError';
+import { BrandLogo, BrandWordmark } from '../../components/ui/BrandLogo';
+import AuthHeroPanel from '../../components/auth/AuthHeroPanel';
+import { getLocalStorageItem, setLocalStorageItem, removeLocalStorageItem } from '../../utils/safeStorage';
+
+// ── Error mapper ─────────────────────────────────────────────────────────────
+const INVALID_CREDENTIALS_ERROR = 'Incorrect password or email.';
+
+const getFriendlyError = (msg) => {
+  if (!msg) return 'An unexpected error occurred. Please try again.';
+  const m = msg.toLowerCase();
+  if (m.includes('invalid login') || m.includes('invalid credentials'))
+    return INVALID_CREDENTIALS_ERROR;
+  if (m.includes('incorrect password') || m.includes('no account'))
+    return INVALID_CREDENTIALS_ERROR;
+  if (m.includes('email not confirmed'))
+    return 'Your email is not confirmed. Please check your inbox.';
+  if (m.includes('too many') || m.includes('rate limit'))
+    return 'Too many failed attempts. Please wait a few minutes.';
+  if (m.includes('network') || m.includes('fetch'))
+    return 'Network error. Please check your connection.';
+  if (m.includes('invalid'))
+    return INVALID_CREDENTIALS_ERROR;
+  return msg;
+};
+
+const isEmailValid = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+
+const getLoginErrorPlacement = (msg) => {
+  const friendly = getFriendlyError(msg);
+  const lower = friendly.toLowerCase();
+
+  if (friendly === INVALID_CREDENTIALS_ERROR) {
+    return {
+      fieldErrors: { email: '', password: '' },
+      loginError: INVALID_CREDENTIALS_ERROR,
+      credentialError: true,
+    };
+  }
+
+  if (lower.includes('email is not confirmed')) {
+    return {
+      fieldErrors: { email: friendly, password: '' },
+      loginError: friendly,
+      credentialError: false,
+    };
+  }
+
+  return {
+    fieldErrors: { email: '', password: '' },
+    loginError: friendly,
+    credentialError: false,
+  };
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// LoginPage
+// ════════════════════════════════════════════════════════════════════════════
+const LoginPage = () => {
+  usePageTitle('Login');
+  // ── Login state ──────────────────────────────────────────────────────────
+  const [email, setEmail]               = useState(() => getLocalStorageItem('remembered_email') || '');
+  const [password, setPassword]         = useState('');
+  const [rememberMe, setRememberMe]     = useState(() => getLocalStorageItem('remember_me') === 'true');
+  const [showPassword, setShowPassword] = useState(false);
+  const [loginError, setLoginError]     = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [fieldErrors, setFieldErrors]   = useState({ email: '', password: '' });
+  const [credentialErrorActive, setCredentialErrorActive] = useState(false);
+  const { login, resendSignupConfirmation } = useAuth();
+  const [resendNote, setResendNote] = useState('');
+  const [resending, setResending] = useState(false);
+  // login() reports an unconfirmed account with this wording; offer the fix
+  // right under the message instead of sending them to find the old email.
+  const needsConfirmation = /confirm your email/i.test(loginError);
+
+  const handleResendConfirmation = async () => {
+    if (resending || !email.trim()) return;
+    setResending(true);
+    const result = await resendSignupConfirmation(email.trim());
+    setResending(false);
+    setResendNote(result.success ? 'Sent. Check your inbox and spam folder for the confirmation link.' : result.error);
+  };
+  const navigate   = useNavigate();
+  const location   = useLocation();
+
+  // A one-time flash message handed off via router state (e.g. from a
+  // completed password reset). Read once on mount, then scrubbed from
+  // history immediately so a later Back navigation or reload of /login
+  // never re-shows it.
+  const [flashMessage, setFlashMessage] = useState(() => location.state?.flashMessage || '');
+  useEffect(() => {
+    if (location.state?.flashMessage) {
+      navigate(location.pathname, { replace: true, state: null });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const loginErrorTimerRef = useRef(null);
+
+  useEffect(() => () => {
+    if (loginErrorTimerRef.current) clearTimeout(loginErrorTimerRef.current);
+  }, []);
+
+  // ── Login handler ────────────────────────────────────────────────────────
+  const clearLoginErrorTimer = () => {
+    if (loginErrorTimerRef.current) {
+      clearTimeout(loginErrorTimerRef.current);
+      loginErrorTimerRef.current = null;
+    }
+  };
+
+  const showLoginAlert = (message, isCredentialError = false) => {
+    clearLoginErrorTimer();
+    setLoginError(message);
+    setCredentialErrorActive(isCredentialError);
+  };
+
+  const clearLoginFieldError = (field) => {
+    clearLoginErrorTimer();
+    setLoginError('');
+    setCredentialErrorActive(false);
+    setFieldErrors(prev => {
+      if (!prev[field]) return prev;
+      return { ...prev, [field]: '' };
+    });
+  };
+
+  const handleEmailChange = (e) => {
+    setEmail(e.target.value);
+    clearLoginFieldError('email');
+    setFlashMessage('');
+  };
+
+  const handlePasswordChange = (e) => {
+    setPassword(e.target.value);
+    clearLoginFieldError('password');
+    setFlashMessage('');
+  };
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    clearLoginErrorTimer();
+    setLoginError('');
+    setResendNote('');
+    setCredentialErrorActive(false);
+    setFieldErrors({ email: '', password: '' });
+
+    const nextFieldErrors = { email: '', password: '' };
+    if (!email.trim()) {
+      nextFieldErrors.email = 'Email address is required.';
+    } else if (!isEmailValid(email)) {
+      nextFieldErrors.email = 'Please enter a valid email address.';
+    }
+
+    if (!password.trim()) {
+      nextFieldErrors.password = 'Password is required.';
+    }
+
+    if (nextFieldErrors.email || nextFieldErrors.password) {
+      setFieldErrors(nextFieldErrors);
+      return;
+    }
+
+    setLoginLoading(true);
+    try {
+      const result = await login(email.trim(), password);
+      if (result.success) {
+        if (rememberMe) {
+          setLocalStorageItem('remember_me', 'true');
+          setLocalStorageItem('remembered_email', email.trim());
+        } else {
+          removeLocalStorageItem('remember_me');
+          removeLocalStorageItem('remembered_email');
+        }
+        await logAuth('User Logged In', {
+          recordRef: result.profile?.name || 'Authenticated user',
+          details: 'User logged in.',
+        });
+        // ProtectedRoute stashes the page a guest actually wanted here before
+        // bouncing them to login (e.g. "Book a Cargo" from the public
+        // footer or a trip schedule card). Honor it — including its own
+        // state, like a preselected trip — instead of always landing on the
+        // generic role-based home. Falls back to the existing behavior when
+        // there's nothing to return to.
+        const from = location.state?.from;
+        if (from?.pathname) {
+          navigate(`${from.pathname}${from.search || ''}${from.hash || ''}`, { state: from.state, replace: true });
+        } else {
+          navigate('/');
+        }
+        // Deliberately NOT calling setLoginLoading(false) here: navigate()
+        // doesn't unmount this page synchronously, so clearing it would risk
+        // a frame of the "Sign In" button un-loading before the route
+        // change actually takes the user away.
+      } else {
+        const nextError = getLoginErrorPlacement(result.error);
+        setFieldErrors(nextError.fieldErrors);
+        showLoginAlert(nextError.loginError, nextError.credentialError);
+        setLoginLoading(false);
+      }
+    } catch (err) {
+      const nextError = getLoginErrorPlacement(err?.message);
+      setFieldErrors(nextError.fieldErrors);
+      showLoginAlert(nextError.loginError, nextError.credentialError);
+      setLoginLoading(false);
+    }
+  };
+
+  const emailHasError = !!fieldErrors.email || credentialErrorActive;
+  const passwordHasError = !!fieldErrors.password || credentialErrorActive;
+
+  return (
+    <div className="login-split-page">
+
+      {/* Modern Mesh Gradient Background */}
+      <div className="auth-mesh-bg" aria-hidden="true">
+        <div className="auth-mesh-orb auth-mesh-orb-1" />
+        <div className="auth-mesh-orb auth-mesh-orb-2" />
+        <div className="auth-mesh-orb auth-mesh-orb-3" />
+      </div>
+
+      {/* LEFT PANEL — Branding */}
+      <AuthHeroPanel />
+
+      {/* ════════════════════════════════════════════════════════════
+          RIGHT PANEL — Login Form
+      ════════════════════════════════════════════════════════════ */}
+      <div className="login-right-panel">
+        <div className="login-right-bg-orb login-right-bg-orb-1" aria-hidden="true" />
+        <div className="login-right-bg-orb login-right-bg-orb-2" aria-hidden="true" />
+
+        <div className="login-form-container animate-slide-up">
+
+          <div className="login-mobile-brand flex items-center" style={{ gap: 8 }}>
+            <BrandLogo size={32} decorative />
+            <BrandWordmark />
+          </div>
+
+          <div className="login-form-header">
+            <h2 className="login-form-title">Welcome back</h2>
+            <p className="login-form-sub">Sign in to manage your shipments &amp; track orders.</p>
+          </div>
+
+          {!loginError && flashMessage && (
+            <div className="login-success-box" role="status">
+              <CheckCircle2 size={15} />
+              <span>{flashMessage}</span>
+            </div>
+          )}
+
+          {loginError && (
+            <div className="login-error-box" role="alert">
+              <AlertTriangle size={15} />
+              <span>{loginError}</span>
+            </div>
+          )}
+
+          {needsConfirmation && (
+            <div className="login-resend-row">
+              <button type="button" className="btn btn-outline btn-sm" onClick={handleResendConfirmation} disabled={resending}>
+                {resending ? 'Sending…' : 'Resend confirmation email'}
+              </button>
+              {resendNote && <span className="login-resend-note" role="status">{resendNote}</span>}
+            </div>
+          )}
+
+          <form onSubmit={handleLogin} noValidate>
+            {/* Email */}
+            <div className="form-group">
+              <label className="form-label" htmlFor="login-email">Email Address</label>
+              <div className="form-input-wrapper">
+                <Mail size={16} className="form-input-icon" aria-hidden="true" />
+                <input
+                  id="login-email"
+                  type="email"
+                  className={`form-input form-input-icon-left ${emailHasError ? 'field-invalid' : ''}`}
+                  placeholder="your@email.com"
+                  value={email}
+                  onChange={handleEmailChange}
+                  required
+                  autoComplete="email"
+                  aria-required="true"
+                  aria-invalid={emailHasError}
+                  aria-describedby={fieldErrors.email ? 'login-email-error' : undefined}
+                />
+              </div>
+              {fieldErrors.email && (
+                <FieldError id="login-email-error" message={fieldErrors.email} />
+              )}
+            </div>
+
+            {/* Password */}
+            <div className="form-group">
+              <div className="login-pw-header">
+                <label className="form-label" htmlFor="login-password">Password</label>
+                <Link to="/forgot-password" className="login-forgot-link">
+                  Forgot password?
+                </Link>
+              </div>
+              <div className="form-input-wrapper">
+                <Lock size={16} className="form-input-icon" aria-hidden="true" />
+                <input
+                  id="login-password"
+                  type={showPassword ? 'text' : 'password'}
+                  className={`form-input form-input-icon-left form-input-icon-right ${passwordHasError ? 'field-invalid' : ''}`}
+                  placeholder="Enter your password"
+                  value={password}
+                  onChange={handlePasswordChange}
+                  required
+                  autoComplete="current-password"
+                  aria-required="true"
+                  aria-invalid={passwordHasError}
+                  aria-describedby={fieldErrors.password ? 'login-password-error' : undefined}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="form-pw-toggle"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-pressed={showPassword}
+                >
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+              {fieldErrors.password && (
+                <FieldError id="login-password-error" message={fieldErrors.password} />
+              )}
+            </div>
+
+            {/* Remember Me */}
+            <div className="remember-me-group">
+              <label className="remember-me-label">
+                <input
+                  type="checkbox"
+                  className="remember-me-checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                />
+                <span>Remember me</span>
+              </label>
+            </div>
+
+            <button
+              type="submit"
+              className="login-submit-btn"
+              disabled={loginLoading}
+              aria-busy={loginLoading}
+            >
+              {loginLoading ? 'Signing in...' : 'Sign In'}
+            </button>
+          </form>
+
+          {/* Divider */}
+          <div className="login-divider">
+            <span>Don't have an account?</span>
+          </div>
+
+          {/* Sign up */}
+          <Link to="/register" className="login-signup-btn">
+            Create account
+          </Link>
+
+          {/* Footer links */}
+          <div className="login-footer-links">
+            <Link to="/about" className="login-footer-btn">About Us</Link>
+            <span className="login-footer-sep" aria-hidden="true">·</span>
+            <Link to="/track" className="login-footer-btn">Track Package</Link>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  );
+};
+
+export default LoginPage;

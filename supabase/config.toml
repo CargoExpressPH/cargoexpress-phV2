@@ -1,0 +1,87 @@
+[auth.email.template.recovery]
+subject = "Reset your password"
+content_path = "./supabase/templates/recovery.html"
+
+[functions.paymongo-create-payment]
+verify_jwt = true
+
+[functions.paymongo-refund]
+verify_jwt = true
+
+[functions.paymongo-refund-recovery]
+# Called only by pg_cron with the Vault-held service-role JWT. The function
+# also compares the bearer value with SUPABASE_SERVICE_ROLE_KEY before work.
+verify_jwt = true
+
+[functions.paymongo-webhook]
+verify_jwt = false
+
+[functions.verify-payment-return]
+# Device B is deliberately unauthenticated. The function authenticates the
+# request with a short-lived, hashed return capability and returns status only.
+verify_jwt = false
+
+[functions.send-push]
+# Durable delivery jobs are the only supported caller path.
+verify_jwt = true
+
+[functions.store-photo-fallback]
+verify_jwt = false
+
+[functions.get-photo-fallback]
+verify_jwt = false
+
+[functions.delete-photo-fallback]
+verify_jwt = false
+
+[functions.record-photo-storage-event]
+verify_jwt = false
+
+[functions.photo-storage-health]
+verify_jwt = false
+
+[functions.storage-egress-estimate]
+verify_jwt = false
+
+[functions.delete-storage-photos]
+# Same family as record-photo-storage-event / photo-storage-health above:
+# self-authenticates via requireAdmin() inside the function, and re-verifies
+# eligibility server-side via delete_evidence_photos() before deleting
+# anything. Replaces cleanup-orphaned-photos (removed — its orphan-scan
+# logic is now one case inside the unified gallery/delete flow).
+verify_jwt = false
+
+[functions.submit-inquiry]
+verify_jwt = false
+
+[functions.broadcast-announcement]
+# Always requires a real admin caller — no anonymous mode like send-push has.
+verify_jwt = true
+
+[functions.unsubscribe-announcements]
+# Public link target, clicked straight from an email client (no auth header
+# possible). Authorization comes from the per-email HMAC token instead.
+verify_jwt = false
+
+[functions.process-daily-reminders]
+# Called only by the daily_payment_reminders pg_cron job, authenticated with
+# the service role key as its bearer token — verify_jwt=true rejects
+# anything else at the gateway; the function itself re-checks the token is
+# specifically the service role key, not just any signed-in user.
+verify_jwt = true
+
+[functions.process-push-deliveries]
+# pg_cron invokes this worker with the service-role JWT. The function also
+# compares the bearer value with SUPABASE_SERVICE_ROLE_KEY before claiming jobs.
+verify_jwt = true
+
+[functions.archive-expired-evidence-photos]
+# Called only by the evidence_photo_archive pg_cron job — same shape and
+# same reasoning as process-daily-reminders above.
+verify_jwt = true
+
+[functions.email-trip-reschedule]
+# Called only by the trips_notify_reschedule_email trigger via pg_net,
+# authenticated with the service role key as its bearer token — same shape
+# and same reasoning as process-daily-reminders above.
+verify_jwt = true

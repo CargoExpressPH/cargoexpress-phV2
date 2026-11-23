@@ -1,0 +1,116 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   CARGOEXPRESS PH — Main Stylesheet
+   Modular CSS architecture — imports organized by cascade layer
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Layer order is the cascade contract. Every file below belongs to exactly
+   one layer; later layers beat earlier ones at equal specificity. This makes
+   the "which layer wins?" answer explicit instead of depending on import
+   position — a file can never accidentally outrank its intended layer.
+
+   Layer order mirrors the former import order, so no rule changes meaning:
+   tokens < base < components < layout < pages < effects < responsive
+   < refresh < hardening < density < home < sr-controls < mobile-inputs
+   < perf < print. home is the customer Home screen, placed after every
+   layer its older rules are spread across. mobile-inputs comes after the
+   page layers so compact page rules
+   cannot trigger iOS input-focus zoom; perf (phone performance overrides)
+   is the last screen layer; print remains last for documents. */
+
+@layer tokens, base, components, layout, pages, effects, responsive, refresh, hardening, density, home, sr-controls, mobile-inputs, perf, print;
+
+/* ── 1. Design Tokens (no output, only CSS variables) ── */
+@import './tokens.css' layer(tokens);
+
+/* ── 2. Base & Reset ── */
+@import './base.css' layer(base);
+
+/* ── 3. Component Styles ── */
+@import './components.css' layer(components);
+@import './data.css' layer(components);
+@import './feedback.css' layer(components);
+@import './loading-search.css' layer(components);
+@import './tabs-steps.css' layer(components);
+@import './charts.css' layer(components);
+@import './validation.css' layer(components);
+
+/* ── 4. Layouts ── */
+@import './layout-admin.css' layer(layout);
+@import './layout-customer.css' layer(layout);
+
+/* ── 5. Page-Specific Styles ── */
+@import './auth.css' layer(pages);
+@import './pages.css' layer(pages);
+@import './about-page.css' layer(pages);
+@import './legal-page.css' layer(pages);
+@import './tracking.css' layer(pages);
+@import './banners-notifications.css' layer(pages);
+@import './chat-inbox.css' layer(pages);
+@import './profile-card.css' layer(pages);
+@import './forms-hardening.css' layer(pages);
+@import './sales-reports.css' layer(pages);
+@import './package-qr-labels.css' layer(pages);
+@import './qr-scanner.css' layer(pages);
+@import './trip-scanner.css' layer(pages);
+@import './micro-effects.css' layer(pages);
+@import './tables-mobile.css' layer(pages);
+@import './onboarding-lightbox.css' layer(pages);
+@import './admin-composition.css' layer(pages);
+@import './trip-detail.css' layer(pages);
+@import './feedback-inquiries.css' layer(pages);
+@import './public-shell.css' layer(pages);
+
+/* ── 6. Animations & Utilities ── */
+@import './animations-utils.css' layer(effects);
+
+/* ── 7. Responsive Overrides ── */
+@import './responsive.css' layer(responsive);
+
+/* ── 8. Premium Product Refresh ── */
+@import './premium-refresh.css' layer(refresh);
+@import './booking-success.css' layer(refresh);
+
+/* Customer mobile app refresh */
+@import './customer-mobile-refresh.css' layer(refresh);
+@import './customer-account.css' layer(refresh);
+@import './customer-profile.css' layer(refresh);
+
+/* Admin mobile app refresh */
+@import './admin-modern-refresh.css' layer(refresh);
+
+/* Payment and booking result screens (after booking-success.css) */
+@import './result-screens.css' layer(refresh);
+
+/* Final mobile viewport and tap-readability hardening */
+@import './viewport-hardening.css' layer(hardening);
+
+/* Phone-width density: tile, heading, card-padding and gap sizing.
+   density is the last screen layer in the declaration above, so these rules
+   outrank every earlier layer at equal specificity — the ordering contract
+   is enforced by the layer list, not by this file's import position. */
+@import './mobile-density.css' layer(density);
+
+/* Customer Home. Its own layer after density, so Home is tuned in one file
+   instead of against rules in four earlier layers. */
+@import './customer-home.css' layer(home);
+
+/* Formal bond-paper print documents (Reports & Sales) */
+/* Sales & Reports control bar. Must sit after `refresh`/`density` to
+   override their global mobile .admin-page-header .btn sizing for this
+   one page; see the file header for why layer order, not specificity,
+   is what decides this. */
+@import './sales-reports-controls.css' layer(sr-controls);
+
+/* Keep all editable controls legible on phones and prevent iOS focus zoom. */
+@import './mobile-inputs.css' layer(mobile-inputs);
+
+/* Phones and tablets: no backdrop blur, solid bars (smooth scrolling). */
+@import './mobile-performance.css' layer(perf);
+
+@import './print-document.css' layer(print);
+
+/* Sales & Reports accounting print layout (Per-Trip Sales page only) */
+@import './per-trip-sales-print.css' layer(print);
+
+/* Package QR label sheets (Order Details — cut-and-stick box stickers) */
+@import './print-labels.css' layer(print);

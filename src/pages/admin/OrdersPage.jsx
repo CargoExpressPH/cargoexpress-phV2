@@ -1,0 +1,346 @@
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { getOrders, getOrderStatusCounts, withTimeout } from '../../lib/database';
+import { isNetworkError } from '../../lib/offlineScannerQueue';
+import useNetworkRecovery from '../../hooks/useNetworkRecovery';
+import useRealtimeOrders from '../../hooks/useRealtimeOrders';
+import useLatestRequest from '../../hooks/useLatestRequest';
+import { useAuth } from '../../contexts/AuthContext';
+import StatusBadge from '../../components/ui/StatusBadge';
+import { CenteredSpinner } from '../../components/ui/Loader';
+import EmptyState from '../../components/ui/EmptyState';
+import PageTransition from '../../components/ui/PageTransition';
+import ResponsiveFilterControls from '../../components/ui/ResponsiveFilterControls';
+import Pagination from '../../components/ui/Pagination';
+import { Search, Package, Plus, CloudOff } from 'lucide-react';
+import usePageTitle from '../../hooks/usePageTitle';
+import { formatMoney } from '../../utils/currencyInput';
+import { isOrderPriced, ORDER_STATUS } from '../../constants/status';
+import { formatPhDate } from '../../utils/datetime';
+import { rowLinkProps } from '../../utils/rowLink';
+import { orderPartyName } from '../../lib/orderParties';
+
+// Eleven chips — one per status — put the whole state machine in the toolbar and
+// made the two that need a human ('Pending Review', 'Pending Cancellation') look
+// like the eight that don't. These six group by what the admin has to DO:
+// something is waiting on a decision, waiting on a trip, moving, or finished.
+// The exact micro-status is still on every row's badge and on the order page.
+//
+// `statuses: null` means "no filter" — an empty array would filter to nothing.
+const FILTER_GROUPS = [
+  { value: 'All',           label: 'All',           statuses: null },
+  { value: 'Action Needed', label: 'Action Needed', statuses: [ORDER_STATUS.PENDING_REVIEW, ORDER_STATUS.PENDING_CANCELLATION] },
+  { value: 'Pending',       label: 'Pending',       statuses: [ORDER_STATUS.PENDING] },
+  { value: 'Active',        label: 'Active',        statuses: [ORDER_STATUS.ASSIGNED, ORDER_STATUS.PICKED_UP, ORDER_STATUS.IN_TRANSIT, ORDER_STATUS.ARRIVED_HUB, ORDER_STATUS.OUT_FOR_DELIVERY] },
+  { value: 'Completed',     label: 'Completed',     statuses: [ORDER_STATUS.DELIVERED] },
+  { value: 'Cancelled',     label: 'Cancelled',     statuses: [ORDER_STATUS.CANCELLED] },
+];
+
+// Every status appears in exactly one group, so 'All' is the sum of the other
+// five and nothing can go missing from the list by being unfiltered anywhere.
+const statusesForTab = (tab) =>
+  FILTER_GROUPS.find(g => g.value === tab)?.statuses ?? null;
+
+// Every specific status group carries a badge. 'All' is a total, not an
+// individual status group, so it stays unbadged while Completed and Cancelled
+// remain visible as useful status totals.
+const BADGED_TABS = FILTER_GROUPS.filter(group => group.statuses !== null).map(group => group.value);
+
+// Sum the per-status counts the RPC returns into one group's total. A status
+// absent from the payload has no orders, which is a 0 here.
+const groupCount = (statusCounts, statuses) =>
+  statuses.reduce((sum, status) => sum + (statusCounts[status] || 0), 0);
+
+// Debounce delay in ms — avoids firing a DB query on every keystroke.
+// Matches CustomersPage so admin search feels consistent across pages.
+const SEARCH_DEBOUNCE_MS = 350;
+
+const AdminOrdersPage = () => {
+  usePageTitle('Bookings');
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [isOnline, setIsOnline] = useState(() =>
+    typeof navigator !== 'undefined' ? navigator.onLine !== false : true
+  );
+  // ?tab=<group> lets other screens (the dashboard's "Needs attention" list)
+  // open this list already filtered. Unknown values fall back to All.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState(() => {
+    const requested = searchParams.get('tab');
+    return FILTER_GROUPS.some(group => group.value === requested) ? requested : 'All';
+  });
+  const [search, setSearch] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [perPage, setPerPage] = useState(15);
+
+  const [totalOrders, setTotalOrders] = useState(0);
+
+  // Only the debounced value reaches the query; `search` drives the input.
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const debounceTimer = useRef(null);
+  const beginRequest = useLatestRequest(`${user?.id || ''}:${currentPage}:${perPage}:${activeTab}:${debouncedSearch}`);
+
+  const loadOrders = async () => {
+    const isCurrent = beginRequest();
+    if (!isCurrent()) return;
+    setError(null);
+    setLoading(true);
+    try {
+      const { data, count } = await withTimeout(
+        getOrders(null, true, {
+          page: currentPage,
+          perPage,
+          // A group is a list of statuses matched with IN, applied in the query
+          // so pagination and the total count cover the same population.
+          statusFilter: statusesForTab(activeTab),
+          search: debouncedSearch.trim(),
+        })
+      );
+      if (!isCurrent()) return;
+      setOrders(data || []);
+      setTotalOrders(count || 0);
+    } catch (e) {
+      // Network errors are handled silently: the data layer falls back to
+      // IndexedDB cache, so a throw here means there was no cache either.
+      // Show an empty list with the offline banner rather than an error card.
+      if (isCurrent()) {
+        if (isNetworkError(e)) {
+          setOrders([]);
+          setTotalOrders(0);
+        } else {
+          setError(e.message || 'Failed to load bookings.');
+        }
+      }
+    } finally {
+      if (isCurrent()) setLoading(false);
+    }
+  };
+
+  // loadOrders closes over the current tab, page and search. The refresh
+  // callbacks below are memoized (so they don't re-subscribe the socket on
+  // every render), which would otherwise pin them to the first render's
+  // filters and reload page 1 of "All" forever.
+  const loadOrdersRef = useRef(loadOrders);
+  loadOrdersRef.current = loadOrders;
+
+  useEffect(() => { loadOrders(); }, [currentPage, perPage, activeTab, debouncedSearch, user?.id]);
+
+  // ── Filter badges ────────────────────────────────────────────────────────
+  // Deliberately NOT part of loadOrders: the counts do not depend on the tab,
+  // the page, or the search box, so recomputing them on every keystroke or
+  // page turn would be an aggregate over the whole orders table for an answer
+  // that has not changed. They move only when an order's status does, which is
+  // mount, a realtime batch, and coming back from offline.
+  //
+  // null (not {}) until the first load, so a badge is absent rather than
+  // claiming zero while the answer is still unknown.
+  const [statusCounts, setStatusCounts] = useState(null);
+
+  const loadStatusCounts = useCallback(async () => {
+    try {
+      setStatusCounts(await getOrderStatusCounts());
+    } catch {
+      // A failed count must not take the list down with it — the table is the
+      // page, the badges are decoration. Leave whatever was there.
+    }
+  }, []);
+
+  useEffect(() => { loadStatusCounts(); }, [loadStatusCounts]);
+
+  // Cleanup debounce on unmount so a pending timer can't set state after teardown
+  useEffect(() => () => clearTimeout(debounceTimer.current), []);
+
+  // Track online/offline transitions
+  useEffect(() => {
+    const handleOnline = () => { setIsOnline(true); loadOrdersRef.current(); };
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  const handleRecovery = useCallback(() => {
+    loadOrdersRef.current();
+    loadStatusCounts();
+  }, [loadStatusCounts]);
+
+  useNetworkRecovery(handleRecovery);
+
+  // One admin action fans out across many rows (a trip cascade rewrites every
+  // order aboard), so the hook's debounce collapses the burst into one refresh
+  // of both the rows on screen and the badge totals.
+  const handleRealtimeBatch = useCallback(() => {
+    loadOrdersRef.current();
+    loadStatusCounts();
+  }, [loadStatusCounts]);
+
+  useRealtimeOrders({
+    // Keyed off the session, not off `loading`: this list sets loading on every
+    // tab change and page turn, so gating on it would tear the socket down and
+    // rebuild it each time the admin clicks a filter.
+    enabled: Boolean(user?.id),
+    channelName: 'admin_orders_list',
+    userId: user?.id,
+    debounceMs: 1500,
+    onBatch: handleRealtimeBatch,
+  });
+
+  const filterOptions = FILTER_GROUPS.map(g => {
+    const badged = statusCounts && BADGED_TABS.includes(g.value);
+    const count = badged ? groupCount(statusCounts, g.statuses) : null;
+    return {
+      value: g.value,
+      label: g.label,
+      // A zero queue is good news and needs no pill; showing "0" three times
+      // trains the eye to skip the row where the real number appears.
+      count: count > 0 ? count : null,
+      // Red only where a human is blocked waiting on a decision.
+      countClassName: g.value === 'Action Needed' ? 'filter-chip-count-alert' : undefined,
+    };
+  });
+
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    setCurrentPage(1);
+    // Keep the URL in step so a reload or shared link shows the same filter.
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (tab === 'All') next.delete('tab'); else next.set('tab', tab);
+      return next;
+    }, { replace: true });
+  };
+  const handleSearchChange = (e) => {
+    const val = e.target.value;
+    setSearch(val);
+    setCurrentPage(1);
+    clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => setDebouncedSearch(val), SEARCH_DEBOUNCE_MS);
+  };
+
+  const paginated = orders;
+  const totalFiltered = totalOrders;
+
+  return (
+    <PageTransition>
+      <div className="admin-page-header">
+        <div>
+          <h1 className="admin-page-title"><Package size={24} color="var(--primary)" aria-hidden="true" />Bookings</h1>
+          <p className="admin-page-subtitle">Search, review, and advance every cargo order.</p>
+        </div>
+        <div className="admin-page-meta">
+          <span className="badge badge-info">{loading ? 'Loading' : `${paginated.length} shown`}</span>
+          <span className="badge">{loading ? 'Checking orders' : `${totalFiltered} total`}</span>
+          <button type="button" className="btn btn-primary" onClick={() => navigate('/admin/create-booking')}>
+            <Plus size={16} /> Add Booking
+          </button>
+        </div>
+      </div>
+      {!isOnline && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          background: 'rgba(234, 179, 8, 0.12)',
+          border: '1px solid rgba(234, 179, 8, 0.35)',
+          color: 'var(--text-muted, #ca8a04)',
+          borderRadius: 8,
+          padding: '10px 14px',
+          marginBottom: 16,
+          fontSize: '0.875rem',
+        }}>
+          <CloudOff size={18} color="#eab308" />
+          <span><strong>Offline Mode</strong> &mdash; Showing locally cached bookings. Changes you make here will sync automatically when back online.</span>
+        </div>
+      )}
+      <div className="admin-toolbar">
+        <div className="search-box" role="search">
+          <Search size={16} className="search-icon" aria-hidden="true" />
+          <input
+            id="admin-orders-search"
+            name="qorders"
+            aria-label="Search orders"
+            placeholder="Search tracking, sender, or receiver..."
+            value={search}
+            onChange={handleSearchChange}
+          />
+        </div>
+      </div>
+      <ResponsiveFilterControls
+        options={filterOptions}
+        value={activeTab}
+        onChange={handleTabChange}
+        ariaLabel="Order status filters"
+        className="mb-16"
+      />
+      {loading ? (
+        <CenteredSpinner />
+      ) : error ? (
+        <div className="card admin-error-card">
+          <h3>Error</h3>
+          <p>{error}</p>
+          <button type="button" className="btn btn-primary mt-md" onClick={loadOrders}>Retry</button>
+        </div>
+      ) : paginated.length === 0 ? (
+        <div className="card animate-fade-in">
+          <EmptyState
+            icon={isOnline ? Package : CloudOff}
+            title={!isOnline && !search ? 'No cached bookings' : 'No orders found'}
+            description={
+              !isOnline && !search
+                ? 'No bookings were found in the local cache. Connect to the internet to load your bookings.'
+                : search
+                  ? 'Try adjusting your search or filter criteria.'
+                  : 'There are no bookings here yet. Create one manually or wait for customers to book.'
+            }
+            actionLabel={!search && activeTab === 'All' && isOnline ? 'Add Booking' : undefined}
+            onAction={!search && activeTab === 'All' && isOnline ? () => navigate('/admin/create-booking') : undefined}
+          />
+        </div>
+      ) : (
+        <div className="card admin-section-card admin-table-card animate-fade-in">
+          <div className="table-container">
+            <table className="data-table data-table--wide data-table--compact">
+              <caption className="sr-only">List of customer bookings</caption>
+              <thead><tr><th scope="col">Tracking</th><th scope="col">Customer</th><th scope="col">Route</th><th scope="col">Weight</th><th scope="col">Cost</th><th scope="col">Status</th><th scope="col">Date</th></tr></thead>
+              <tbody>
+                {paginated.map((o) => (
+                  <tr key={o.id} {...rowLinkProps(navigate, `/admin/orders/${o.id}`)}>
+                    <td data-label="Tracking">
+                      <div className="flex flex-col" style={{gap: '4px'}}>
+                        <Link to={`/admin/orders/${o.id}`} className="fw-700 text-accent">{o.tracking_number}</Link>
+                        {o.service_area_status === 'for_review' && (
+                          <span className="badge badge-warning" style={{ alignSelf: 'flex-start', fontSize: 'var(--text-12)' }}>Out of Coverage Review</span>
+                        )}
+                      </div>
+                    </td>
+                    <td data-label="Customer">{orderPartyName(o, 'sender') || o.profiles?.name}</td>
+                    <td data-label="Route" className="text-sm">{o.origin} → {o.destination}</td>
+                    <td data-label="Weight">{o.actual_weight ? `${o.actual_weight} kg` : '—'}</td>
+                    <td data-label="Cost" className="fw-600">{isOrderPriced(o) ? formatMoney(parseFloat(o.shipping_cost || 0)) : '—'}</td>
+                    <td data-label="Status"><StatusBadge status={o.status} size="sm" /></td>
+                    <td data-label="Date" className="text-xs text-secondary">{formatPhDate(o.created_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <Pagination
+            totalItems={totalFiltered}
+            currentPage={currentPage}
+            itemsPerPage={perPage}
+            onPageChange={setCurrentPage}
+            onPerPageChange={(n) => { setPerPage(n); setCurrentPage(1); }}
+          />
+        </div>
+      )}
+    </PageTransition>
+  );
+};
+
+export default AdminOrdersPage;

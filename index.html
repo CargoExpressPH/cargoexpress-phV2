@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover, interactive-widget=resizes-visual" />
+
+    <!-- ====== SEO & App Meta ====== -->
+    <!-- Per-page title/description/canonical/og:url/JSON-LD come from
+         src/seo/publicPages.js — scripts/generate-seo-pages.mjs rewrites them
+         into each public page at build time. These are the homepage's. -->
+    <title>CargoExpress PH — Manila to Bohol Cargo Booking &amp; Tracking</title>
+    <meta name="description" content="Book door-to-door cargo between Manila and Bohol, check trip schedules, and track your shipment online with CargoExpress PH." />
+    <meta name="keywords" content="Manila to Bohol cargo, Bohol to Manila cargo, cargo forwarder Bohol, door-to-door cargo Philippines, cargo booking, shipment tracking, CargoExpress PH" />
+    <meta name="author" content="CargoExpress PH" />
+    <meta name="google-site-verification" content="OfzT4l9itmaWZhKxET8E-kmmd1XlHkjcGYp1HKSBllE" />
+    <meta name="application-name" content="CargoExpress PH" />
+    <link rel="canonical" href="https://www.cargoexpress-ph.online/" />
+
+    <!-- ====== Theme & Colors ====== -->
+    <meta name="theme-color" content="#16A34A" />
+    <meta name="theme-color" content="#0F172A" media="(prefers-color-scheme: dark)" />
+    <meta name="msapplication-TileColor" content="#16A34A" />
+    <meta name="msapplication-navbutton-color" content="#16A34A" />
+    <meta name="color-scheme" content="dark light" />
+    <script>
+      (function () {
+        try {
+          var storedTheme = localStorage.getItem('cargoexpress_theme');
+          var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          var theme = storedTheme === 'dark' || storedTheme === 'light'
+            ? storedTheme
+            : prefersDark ? 'dark' : 'light';
+
+          document.documentElement.setAttribute('data-theme', theme);
+          document.documentElement.style.colorScheme = theme;
+        } catch (error) {
+          document.documentElement.setAttribute('data-theme', 'light');
+          document.documentElement.style.colorScheme = 'light';
+        }
+      })();
+    </script>
+
+    <!-- The generated public HTML is readable without JavaScript. While the
+         app starts, show its loading state instead of flashing that markup. -->
+    <style>
+      /* Paint the document canvas before React or the bundled stylesheet loads.
+         The boot screen is replaced when React mounts; without a canvas color,
+         that handoff can briefly expose the browser's black dark-mode canvas. */
+      html { background-color: #f3f7fa; }
+      html[data-theme="dark"] { background-color: #0f172a; }
+
+      /* Crawlable page (scripts/generate-seo-pages.mjs). Readable without JS
+         and without the app stylesheet; light unless the theme is dark. */
+      .seo-fallback {
+        --seo-bg: #f3f7fa; --seo-surface: #fff; --seo-text: #0f172a; --seo-muted: #475569;
+        --seo-line: #e2e8f0; --seo-green: #15803d; --seo-tint: #dcfce7;
+        box-sizing: border-box;
+        min-height: 100vh;
+        min-height: 100dvh;
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 0 clamp(16px, 4vw, 32px) 32px;
+        display: flex;
+        flex-direction: column;
+        gap: clamp(24px, 4vw, 40px);
+        font: 16px/1.6 Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+        color: var(--seo-text);
+      }
+      .seo-fallback *, .seo-boot * { box-sizing: border-box; }
+      body:has(> #root > .seo-fallback) { margin: 0; background: #f3f7fa; }
+      .seo-fallback a { color: inherit; }
+      .seo-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--seo-line); flex-wrap: wrap; }
+      .seo-brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 800; text-decoration: none; }
+      .seo-brand img, .seo-boot img { border-radius: 50%; }
+      .seo-top nav { display: flex; flex-wrap: wrap; gap: 4px; }
+      .seo-top nav a, .seo-signin { padding: 7px 12px; border-radius: 999px; color: var(--seo-muted); font-size: .9rem; font-weight: 600; text-decoration: none; }
+      .seo-top nav a[aria-current="page"] { background: var(--seo-tint); color: var(--seo-green); }
+      .seo-signin { border: 1px solid var(--seo-line); color: var(--seo-text); }
+      .seo-hero {
+        padding: clamp(32px, 6vw, 72px) clamp(22px, 5vw, 64px);
+        border-radius: 24px;
+        background: linear-gradient(120deg, rgba(3, 30, 22, .95), rgba(4, 38, 28, .78)), url("/images/landing-hero.webp") 62% 50% / cover, #062a1f;
+        color: #fff;
+      }
+      .seo-eyebrow { margin: 0 0 16px; color: #86efac; font-size: .9375rem; font-weight: 600; }
+      .seo-hero h1 { max-width: 720px; margin: 0 0 16px; font-size: clamp(2rem, 5vw, 3.5rem); line-height: 1.08; letter-spacing: -.03em; }
+      .seo-hero > p:not(.seo-eyebrow) { max-width: 600px; margin: 0; color: rgba(236, 253, 245, .86); font-size: clamp(1rem, 2.2vw, 1.15rem); }
+      .seo-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+      .seo-btn { display: inline-flex; align-items: center; min-height: 46px; padding: 0 20px; border: 1px solid #fff; border-radius: 12px; background: #fff; color: #14532d !important; font-weight: 700; text-decoration: none; }
+      .seo-btn-ghost { background: transparent; color: #fff !important; border-color: rgba(255, 255, 255, .4); }
+      .seo-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+      .seo-cards a { display: grid; gap: 6px; padding: 20px; border: 1px solid var(--seo-line); border-radius: 18px; background: var(--seo-surface); text-decoration: none; }
+      .seo-cards span, .seo-faq p, .seo-foot { color: var(--seo-muted); }
+      .seo-cards span { font-size: .9rem; }
+      .seo-faq { display: grid; gap: 12px; }
+      .seo-faq h2 { margin: 0 0 4px; font-size: clamp(1.4rem, 3vw, 2rem); letter-spacing: -.02em; }
+      .seo-faq article { padding: 18px 20px; border: 1px solid var(--seo-line); border-radius: 16px; background: var(--seo-surface); }
+      .seo-faq h3 { margin: 0 0 6px; font-size: 1.02rem; }
+      .seo-faq p { margin: 0; white-space: pre-line; }
+      .seo-foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; margin-top: auto; padding-top: 20px; border-top: 1px solid var(--seo-line); font-size: .875rem; }
+      .seo-foot span:last-child { display: flex; gap: 16px; }
+      [data-theme="dark"] .seo-fallback { --seo-bg: #0f172a; --seo-surface: #1e293b; --seo-text: #f8fafc; --seo-muted: #cbd5e1; --seo-line: #334155; --seo-green: #34d399; --seo-tint: rgba(16, 185, 129, .18); }
+      [data-theme="dark"] body:has(> #root > .seo-fallback) { background: #0f172a; }
+      @media (prefers-color-scheme: dark) {
+        html:not([data-theme]) .seo-fallback { --seo-bg: #0f172a; --seo-surface: #1e293b; --seo-text: #f8fafc; --seo-muted: #cbd5e1; --seo-line: #334155; --seo-green: #34d399; --seo-tint: rgba(16, 185, 129, .18); }
+        html:not([data-theme]) body:has(> #root > .seo-fallback) { background: #0f172a; }
+      }
+
+      /* Loading splash: shown instead of the page while the app starts. */
+      .seo-boot { display: none; }
+      html.app-booting #root > .seo-fallback { display: none; }
+      html.app-booting .seo-boot {
+        min-height: 100vh;
+        min-height: 100dvh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+        background: #f3f7fa;
+        font: 700 1.125rem/1.1 Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+        letter-spacing: -.01em;
+        color: #1b3a5c;
+        animation: seo-boot-in .5s ease both;
+      }
+      .seo-boot img { box-shadow: 0 0 0 6px rgba(22, 163, 74, .12), 0 12px 30px rgba(15, 23, 42, .12); }
+      .seo-boot b { color: #15803d; }
+      /* font-style: normal — an <i> is italic by default, and even this empty
+         bar made every cold visit download the 78 KB italic Inter face. */
+      .seo-boot i { position: relative; overflow: hidden; width: 120px; height: 3px; border-radius: 3px; background: rgba(22, 163, 74, .16); font-style: normal; }
+      .seo-boot picture, .seo-brand picture { display: contents; }
+      .seo-boot i::after { content: ""; position: absolute; inset: 0 auto 0 0; width: 40%; border-radius: 3px; background: #16a34a; animation: seo-boot-bar 1.1s ease-in-out infinite; }
+      [data-theme="dark"].app-booting .seo-boot { background: #0f172a; color: #4a8ec7; }
+      [data-theme="dark"] .seo-boot b { color: #34d399; }
+      [data-theme="dark"] .seo-boot i { background: rgba(16, 185, 129, .16); }
+      [data-theme="dark"] .seo-boot i::after { background: #10b981; }
+      @keyframes seo-boot-in { from { opacity: 0; } }
+      @keyframes seo-boot-bar { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+      @media (prefers-reduced-motion: reduce) {
+        html.app-booting .seo-boot, .seo-boot i::after { animation: none; }
+        .seo-boot i::after { width: 100%; }
+      }
+      @media (max-width: 640px) {
+        .seo-top nav { order: 3; width: 100%; }
+        .seo-btn { flex: 1 1 100%; justify-content: center; }
+      }
+    </style>
+    <script>
+      document.documentElement.classList.add('app-booting');
+      // If the bundle cannot load, restore the usable public page instead of
+      // leaving visitors on a loading screen indefinitely.
+      setTimeout(function () {
+        if (document.querySelector('#root > .seo-fallback')) {
+          document.documentElement.classList.remove('app-booting');
+        }
+      }, 8000);
+    </script>
+
+    <!-- ====== PWA Manifest ====== -->
+    <link rel="manifest" href="/manifest.json" crossorigin="use-credentials" />
+
+    <!-- ====== Favicon & Icons ====== -->
+    <!-- favicon.ico first: browsers request /favicon.ico implicitly whether or
+         not it is declared, and a 404 there is what leaves a stale or default
+         icon in the tab. Multi-resolution (16/32/48) so the browser picks its
+         own size rather than rescaling one. -->
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-32.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-180.png" />
+    <link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-152.png" />
+    <link rel="apple-touch-icon" sizes="192x192" href="/icons/icon-192.png" />
+    <link rel="apple-touch-icon" sizes="512x512" href="/icons/icon-512.png" />
+    <meta name="msapplication-TileImage" content="/icons/icon-144.png" />
+
+    <!-- ====== Apple PWA Meta ====== -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="CargoExpress PH" />
+    <meta name="mobile-web-app-capable" content="yes" />
+
+    <!-- ====== Microsoft PWA Meta ====== -->
+    <meta name="msapplication-starturl" content="/" />
+    <meta name="msapplication-tap-highlight" content="no" />
+
+    <!-- ====== Open Graph Meta ====== -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="CargoExpress PH — Manila to Bohol Cargo Booking & Tracking" />
+    <meta property="og:description" content="Book door-to-door cargo between Manila and Bohol, check trip schedules, and track your shipment online with CargoExpress PH." />
+    <meta property="og:site_name" content="CargoExpress PH" />
+    <meta property="og:url" content="https://www.cargoexpress-ph.online/" />
+    <meta property="og:locale" content="en_PH" />
+    <meta property="og:image" content="https://www.cargoexpress-ph.online/images/og-image.jpg" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="CargoExpress PH — Manila ⇄ Bohol door-to-door cargo delivery" />
+
+    <!-- ====== Twitter Card Meta ====== -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="CargoExpress PH — Manila to Bohol Cargo Booking & Tracking" />
+    <meta name="twitter:description" content="Book door-to-door cargo between Manila and Bohol, check trip schedules, and track your shipment online with CargoExpress PH." />
+    <meta name="twitter:image" content="https://www.cargoexpress-ph.online/images/og-image.jpg" />
+    <meta name="twitter:image:alt" content="CargoExpress PH — Manila ⇄ Bohol door-to-door cargo delivery" />
+
+    <!-- ====== Search Engine Directives ====== -->
+    <meta name="robots" content="index, follow" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "Organization",
+            "@id": "https://www.cargoexpress-ph.online/#organization",
+            "name": "CargoExpress PH",
+            "alternateName": "Cargo Express PH",
+            "url": "https://www.cargoexpress-ph.online/",
+            "logo": { "@type": "ImageObject", "url": "https://www.cargoexpress-ph.online/images/logo.png", "width": 2000, "height": 2000 },
+            "description": "Book door-to-door cargo between Manila and Bohol, check trip schedules, and track your shipment online with CargoExpress PH.",
+            "areaServed": [
+              { "@type": "Place", "name": "Metro Manila, Philippines" },
+              { "@type": "Place", "name": "Bohol, Philippines" }
+            ]
+          },
+          {
+            "@type": "WebSite",
+            "@id": "https://www.cargoexpress-ph.online/#website",
+            "name": "CargoExpress PH",
+            "alternateName": "Cargo Express PH",
+            "url": "https://www.cargoexpress-ph.online/",
+            "description": "Book door-to-door cargo between Manila and Bohol, check trip schedules, and track your shipment online with CargoExpress PH.",
+            "inLanguage": "en-PH",
+            "publisher": { "@id": "https://www.cargoexpress-ph.online/#organization" }
+          }
+        ]
+      }
+    </script>
+
+    <!-- Inter is bundled locally and precached by the service worker. -->
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+
+    <!-- ====== Service Worker Registration ====== -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        const isDev = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+
+        window.addEventListener('load', async () => {
+          try {
+            const registration = await navigator.serviceWorker.register('/sw.js', {
+              scope: '/',
+            });
+
+            if (!isDev) {
+              // Check for updates periodically (every 1 minute)...
+              setInterval(() => {
+                registration.update();
+              }, 1 * 60 * 1000);
+
+              // ...and the moment the installed app is actually reopened or
+              // refocused, since that is exactly when a returning customer or
+              // admin most wants "did I get the latest version" answered —
+              // not up to an hour later. A backgrounded tab/app resuming is
+              // the case the hourly interval alone can miss for a long time.
+              document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible') registration.update();
+              });
+
+              // sw.js calls self.skipWaiting() on install and
+              // self.clients.claim() on activate, so a new worker takes over
+              // every open tab the instant it activates — no waiting for tabs
+              // to close. This script's job stops at making sure that check
+              // happens often; what to DO once a new worker is in control
+              // (tell the customer/admin and let them choose when to reload,
+              // rather than reloading out from under them) is handled by
+              // useServiceWorkerUpdate + <UpdateAvailableBanner> once React
+              // has mounted, not here — see src/hooks/useServiceWorkerUpdate.js.
+            }
+          } catch (error) {
+            // SW registration failed — app continues working without offline support
+          }
+        });
+      }
+    </script>
+  </body>
+</html>

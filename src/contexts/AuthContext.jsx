@@ -1,0 +1,781 @@
+import { createContext, useContext, useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { supabase, initialAuthRedirectHash } from '../lib/supabase';
+import { normalizeProfileAddressFields } from '../lib/address';
+import { LEGAL_DOCUMENTS } from '../constants/legalDocuments';
+import { getProfile, createProfile } from '../lib/database';
+import { logAuth } from '../lib/activityLog';
+import useNetworkRecovery from '../hooks/useNetworkRecovery';
+import { AUTH_TRANSITIONS } from '../lib/authRouteState';
+import { clearBookingDraftStorage } from '../lib/bookingDraft';
+import { friendlySignupError } from '../lib/signupErrors';
+import {
+  clearPasswordRecoveryPending,
+  hasPendingPasswordRecovery,
+  markPasswordRecoveryPending,
+  parsePasswordRecoveryUrl,
+} from '../lib/passwordRecovery';
+
+const AuthContext = createContext({});
+
+export const useAuth = () => useContext(AuthContext);
+
+const getAppOrigin = () => {
+  if (typeof window !== 'undefined' && window.location.origin && !window.location.hostname.includes('localhost')) {
+    return window.location.origin;
+  }
+  return (import.meta.env.VITE_APP_URL || 'https://cargoexpress-ph.vercel.app').replace(/\/+$/, '');
+};
+
+const getPasswordResetRedirectUrl = () => `${getAppOrigin()}/reset-password`;
+
+// Where the sign-up confirmation link lands. "/" sends a now signed-in
+// customer straight to their dashboard (RootRedirect).
+const getSignupRedirectUrl = () => `${getAppOrigin()}/`;
+
+const clearSupabaseAuthStorage = () => {
+  try {
+    Object.keys(localStorage)
+      .filter(k => k.startsWith('sb-') || k === 'supabase.auth.token')
+      .forEach(k => localStorage.removeItem(k));
+  } catch {
+    // Storage access can fail in some browsers (for example incognito Safari).
+  }
+};
+
+const clearPersistedRecoverySession = async () => {
+  try {
+    // A recovery session is only a temporary credential for setting a new
+    // password. It must never be restored as a normal app session after the
+    // reset page is abandoned or the app is restarted.
+    await supabase.auth.signOut({ scope: 'local' });
+  } catch {
+    // The synchronous storage cleanup below is still enough to prevent the
+    // browser from restoring the stale session on the next render.
+  }
+  clearSupabaseAuthStorage();
+  clearPasswordRecoveryPending();
+};
+
+const getCachedUser = () => {
+  if (typeof localStorage === 'undefined') return null;
+  try {
+    const key = Object.keys(localStorage).find(
+      (k) => (k.startsWith('sb-') && k.endsWith('-auth-token')) || k === 'supabase.auth.token'
+    );
+    if (!key) return null;
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed?.user || null;
+  } catch {
+    return null;
+  }
+};
+
+export const AuthProvider = ({ children }) => {
+  const [user, setUser] = useState(getCachedUser);
+  const [userProfile, setUserProfile] = useState(() => {
+    if (typeof localStorage === 'undefined') return null;
+    try {
+      const cached = localStorage.getItem('cargoexpress_cached_profile');
+      return cached ? JSON.parse(cached) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [loading, setLoading] = useState(() => {
+    const cachedUser = getCachedUser();
+    const cachedProfile = typeof localStorage !== 'undefined' ? localStorage.getItem('cargoexpress_cached_profile') : null;
+    return !(cachedUser && cachedProfile);
+  });
+  const [authTransition, setAuthTransition] = useState(null);
+
+  // Supabase shares auth events across tabs. Remember whether this particular
+  // tab opened the recovery URL so another tab is not unexpectedly hijacked.
+  const recoveryLinkDetected = useRef(
+    typeof window !== 'undefined' && parsePasswordRecoveryUrl(
+      window.location.hash || initialAuthRedirectHash,
+    ).hasRecoveryIntent,
+  );
+
+  // Supabase removes the recovery hash after exchanging it for a session. The
+  // marker survives that URL cleanup and a full browser/PWA restart, allowing
+  // boot to discard an unfinished recovery session instead of treating it as
+  // an ordinary signed-in session.
+  const pendingRecoveryCleanup = useRef(
+    !recoveryLinkDetected.current && hasPendingPasswordRecovery(),
+  );
+
+  if (recoveryLinkDetected.current) {
+    markPasswordRecoveryPending();
+  }
+
+  // Flag to prevent onAuthStateChange from fetching profile during login/registration.
+  // The login() and register() functions handle fetchProfile themselves.
+  const isAuthAction = useRef(false);
+
+  // Whose profile is currently loaded. Lets onAuthStateChange tell a real
+  // account switch apart from GoTrue re-emitting SIGNED_IN on a token refresh
+  // or a tab focus, which it does routinely and which must not trigger work.
+  const lastProfileUserId = useRef(null);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    // Recovery links use the implicit flow: GoTrue appends
+    // `#access_token=...&type=recovery&...` to whichever URL it redirects to,
+    // and the Supabase client — a module-level singleton created well before
+    // this component mounts — can parse that hash and fire PASSWORD_RECOVERY
+    // (below) before this effect's listener even subscribes. Checking the
+    // hash directly, synchronously, on mount closes that race outright rather
+    // than hoping the event is still in flight when we ask.
+    if (recoveryLinkDetected.current && window.location.pathname !== '/reset-password') {
+      // replace(), not assign(): this carries the raw recovery token in the
+      // URL hash, and assign() would push it into browser history as its own
+      // entry — a Back navigation later would return to a URL containing
+      // that (now-consumed, but still sensitive-looking) token. replace()
+      // swaps the current entry instead of adding one.
+      window.location.replace(`/reset-password${window.location.hash || initialAuthRedirectHash}`);
+      return () => { isMounted = false; };
+    }
+
+    const initialize = async () => {
+      try {
+        if (pendingRecoveryCleanup.current) {
+          pendingRecoveryCleanup.current = false;
+          await clearPersistedRecoverySession();
+          if (isMounted) {
+            setUser(null);
+            setUserProfile(null);
+            setLoading(false);
+          }
+          return;
+        }
+
+        // Fast-timeout getSession() (2.5 seconds max) so expired JWT or "cellular data on without load"
+        // never keeps the user staring at an endless loading screen
+        let session = null;
+        try {
+          const sessionPromise = supabase.auth.getSession();
+          const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve({ timeout: true }), 2500));
+          const res = await Promise.race([sessionPromise, timeoutPromise]);
+          if (!res?.timeout && res?.data?.session) {
+            session = res.data.session;
+          }
+        } catch {}
+
+        if (session?.user && !recoveryLinkDetected.current) {
+          if (isMounted) setUser(session.user);
+          fetchProfile(session.user.id, isMounted);
+        } else {
+          // If session is null or timed out (e.g. offline token refresh attempt hung), keep cached user
+          const cachedUser = getCachedUser();
+          if (cachedUser && !recoveryLinkDetected.current) {
+            if (isMounted) {
+              setUser(cachedUser);
+              setLoading(false);
+            }
+            fetchProfile(cachedUser.id, isMounted);
+          } else {
+            if (isMounted) setLoading(false);
+          }
+        }
+      } catch (err) {
+        const cachedUser = getCachedUser();
+        if (cachedUser && isMounted) {
+          setUser(cachedUser);
+        }
+        if (isMounted) setLoading(false);
+      }
+    };
+
+    initialize();
+
+    // Listen for auth changes (sign in / sign out)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (!isMounted) return;
+
+        if (event === 'SIGNED_OUT') {
+          setAuthTransition(null);
+          setUser(null);
+          setUserProfile(null);
+          setLoading(false);
+          return;
+        }
+
+        // A recovery link's token gives GoTrue a real, working session — that's
+        // what lets updateUser({ password }) succeed — but it must never be
+        // treated as "the user is logged in". Skip the normal sign-in handling
+        // entirely (no profile fetch, no `user` state) and just get them to the
+        // page that can act on it. This is deliberately NOT `useNavigate()`:
+        // AuthProvider wraps <RouterProvider> (see App.jsx), so it sits outside
+        // the router context and has no navigate() to call. A hard navigation
+        // also works regardless of which URL Supabase's own redirect actually
+        // landed on — detectSessionInUrl parses the recovery hash from
+        // wherever the browser lands the moment this client boots, and the
+        // resulting session lives in the Supabase client, not in the URL, so
+        // nothing is lost by replacing the location.
+        if (event === 'PASSWORD_RECOVERY') {
+          markPasswordRecoveryPending();
+          lastProfileUserId.current = null;
+          setUser(null);
+          setUserProfile(null);
+          setAuthTransition(null);
+          setLoading(false);
+          if (recoveryLinkDetected.current && window.location.pathname !== '/reset-password') {
+            // replace(), not assign() — see the hash-detection branch above
+            // for why: this fires on a tab that wasn't the one that opened
+            // the recovery link (cross-tab session sync), and it should swap
+            // the tab that opened the recovery URL to /reset-password without
+            // adding a history entry the customer could Back into. Other tabs
+            // receive the shared event but must not be hijacked.
+            window.location.replace(`/reset-password${window.location.hash || initialAuthRedirectHash}`);
+          }
+          return;
+        }
+
+        // updateUser({ password }) emits USER_UPDATED while the recovery
+        // session is still active. Do not load a profile or expose that
+        // temporary session as a signed-in app user before final sign-out.
+        if (hasPendingPasswordRecovery() && !isAuthAction.current) {
+          setLoading(false);
+          return;
+        }
+
+        if (session?.user) {
+          // Replace the user object ONLY when the identity actually changed.
+          // GoTrue hands us a fresh object on every token refresh; storing it
+          // unconditionally changes the context value on a timer, re-rendering
+          // every consumer in the app for no semantic change.
+          setUser(prev =>
+            prev && prev.id === session.user.id && prev.email === session.user.email
+              ? prev
+              : session.user
+          );
+
+          // Which events justify re-reading the profile row?
+          //
+          // NOT plain SIGNED_IN. GoTrue re-emits SIGNED_IN on every token
+          // refresh and whenever the tab regains focus — it does not mean "a
+          // user just signed in". Refetching there put a network round trip on
+          // a ~1-minute cadence whose failure path rewrote userProfile, and a
+          // userProfile without a role makes ProtectedRoute redirect. That is
+          // the spontaneous eject out of a half-filled booking form.
+          //
+          // A genuine account switch still refetches, because the id changes.
+          // USER_UPDATED fires after an email change is confirmed.
+          const isDifferentUser = lastProfileUserId.current !== session.user.id;
+          const shouldFetchProfile =
+            event === 'USER_UPDATED' ||
+            (event === 'SIGNED_IN' && !isAuthAction.current && isDifferentUser);
+
+          if (shouldFetchProfile) {
+            fetchProfile(session.user.id, isMounted);
+          } else if (event !== 'INITIAL_SESSION' && !isAuthAction.current) {
+            // Ensure loading is cleared for TOKEN_REFRESHED or other events
+            // NOT already being driven by login()/register() below.
+            // DO NOT clear loading on INITIAL_SESSION, because initialize() handles fetching the profile.
+            //
+            // DO NOT clear it while isAuthAction.current is true either: both
+            // login() and register() await their own fetchProfile() before
+            // they're done, and signUp()/signInWithPassword() fire this
+            // 'SIGNED_IN' event mid-flight, well before that. Clearing
+            // `loading` here raced register()'s still-in-flight
+            // createProfile/fetchProfile — AuthRoute would see loading=false
+            // with userProfile still null and fall through to `children`,
+            // remounting RegisterPage from scratch (wiping its local
+            // `success`/step state) for the one render before userProfile
+            // finally landed and the real redirect fired. That remount was
+            // the registration "flash back to the form" bug. login()/
+            // register() own this loading flag end-to-end and clear it
+            // themselves once truly done — this listener steps back
+            // entirely whenever one of them is in flight.
+            setLoading(false);
+          }
+        } else {
+          setUser(null);
+          setUserProfile(null);
+          setLoading(false);
+        }
+      }
+    );
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  /**
+   * fetchProfile — always reads from the `profiles` table (Single Source of Truth).
+   * Fallback behaviour: if the profile row doesn't exist yet, or takes too long,
+   * we set a minimal placeholder so the app never hangs.
+   */
+  const fetchProfile = async (userId, isMounted = true) => {
+    let timeoutId;
+    try {
+      const profilePromise = getProfile(userId);
+      const timeoutPromise = new Promise((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error('Profile fetch timeout')), 2500);
+      });
+      const profile = await Promise.race([profilePromise, timeoutPromise]);
+      clearTimeout(timeoutId);
+      if (isMounted) {
+        lastProfileUserId.current = userId;
+        setUserProfile(profile);
+        if (profile && profile.role && typeof localStorage !== 'undefined') {
+          try {
+            localStorage.setItem('cargoexpress_cached_profile', JSON.stringify(profile));
+            localStorage.setItem(`user_profile_${userId}`, JSON.stringify(profile));
+          } catch {}
+        }
+        setLoading(false);
+      }
+      return { success: true, profile };
+    } catch (error) {
+      if (timeoutId) clearTimeout(timeoutId);
+      if (isMounted) {
+        // Check if there is a cached profile before clearing or downgrading to empty
+        let fallback = null;
+        try {
+          const cached = localStorage.getItem(`user_profile_${userId}`) || localStorage.getItem('cargoexpress_cached_profile');
+          if (cached) fallback = JSON.parse(cached);
+        } catch {}
+
+        if (fallback && fallback.role) {
+          lastProfileUserId.current = userId;
+          setUserProfile(fallback);
+          setLoading(false);
+          return { success: true, profile: fallback };
+        }
+
+        setUserProfile(prev => {
+          // If we already have a valid profile, preserve it during transient network errors
+          if (prev && prev.id === userId && prev.role) {
+            return prev;
+          }
+          return { id: userId, role: null, name: '', email: '' };
+        });
+        setLoading(false);
+      }
+      return { success: false, error };
+    }
+  };
+
+  const login = async (email, password) => {
+    try {
+      isAuthAction.current = true;
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      
+      setLoading(true);
+      const profileResult = await fetchProfile(data.user.id);
+      
+      if (!profileResult.success) {
+        // If profile fetching fails, clear the broken session and surface the error.
+        await supabase.auth.signOut();
+        throw new Error(`Failed to retrieve user profile: ${profileResult.error.message || 'Unknown database error'}`);
+      }
+
+      // A successful ordinary login replaces any abandoned recovery attempt
+      // on this browser. Do this only after the profile is ready so a failed
+      // login cannot accidentally discard the recovery cleanup marker.
+      clearPasswordRecoveryPending();
+      isAuthAction.current = false;
+      return { success: true, user: data.user, profile: profileResult.profile };
+    } catch (error) {
+      isAuthAction.current = false;
+      setLoading(false);
+      let msg = error.message || 'An unexpected error occurred.';
+      // Map Supabase generic error to user-friendly messages
+      if (msg.toLowerCase().includes('invalid login credentials') ||
+          msg.toLowerCase().includes('invalid login')) {
+        msg = 'Incorrect password or email.';
+      } else if (msg.toLowerCase().includes('email not confirmed')) {
+        msg = 'Please confirm your email first. Check your inbox for our link.';
+      } else if (msg.toLowerCase().includes('rate limit') ||
+                 msg.toLowerCase().includes('too many')) {
+        msg = 'Too many failed attempts. Please wait a few minutes and try again.';
+      }
+      return { success: false, error: msg };
+    }
+  };
+
+  const register = async (email, password, profileData) => {
+    try {
+      // AuthRoute must keep this exact RegisterPage mounted while the global
+      // session/profile state changes underneath it. Otherwise its local
+      // success state is destroyed and the form can flash back on screen.
+      setAuthTransition(AUTH_TRANSITIONS.REGISTERING);
+      setLoading(true);
+
+      const { legal_consent: legalConsent, ...profileFields } = profileData || {};
+      if (
+        legalConsent?.termsAccepted !== true ||
+        legalConsent?.privacyAccepted !== true ||
+        legalConsent?.termsVersion !== LEGAL_DOCUMENTS.terms.version ||
+        legalConsent?.privacyVersion !== LEGAL_DOCUMENTS.privacy.version
+      ) {
+        throw new Error('You must agree to the current Terms of Service and Privacy Policy to create an account.');
+      }
+
+      // Set flag BEFORE signUp so onAuthStateChange skips the premature fetchProfile.
+      isAuthAction.current = true;
+
+      // These fields are written during the same auth transaction. The database
+      // trigger validates the version against its published-document registry,
+      // records both consents, AND inserts a minimal `profiles` row (id, email,
+      // name, role) atomically with the auth user — see handle_new_user() /
+      // on_auth_user_created. That guarantee is what the recovery path below
+      // depends on: a signed-up user always has SOME profile row, so a failure
+      // in the detailed upsert that follows is never "no profile exists," only
+      // "the address/phone details never made it in."
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: getSignupRedirectUrl(),
+          data: {
+            name: profileFields.name,
+            // Saved by handle_new_user in the same transaction as the account
+            // (20260927045101): with email confirmation on there is no session
+            // yet to write them from this browser.
+            phone: profileFields.phone || null,
+            facebook_name: profileFields.facebook_name || null,
+            address_province: profileFields.address_province || null,
+            address_city: profileFields.address_city || null,
+            address_barangay: profileFields.address_barangay || null,
+            address_street: profileFields.address_street || null,
+            address_lot_block: profileFields.address_lot_block || null,
+            address_landmark: profileFields.address_landmark || null,
+            wants_announcements: profileFields.wants_announcements === true,
+            legal_terms_accepted: true,
+            legal_privacy_accepted: true,
+            legal_terms_version: legalConsent.termsVersion,
+            legal_privacy_version: legalConsent.privacyVersion,
+          },
+        },
+      });
+      if (error) throw error;
+
+      // With email confirmation on, Supabase answers a sign-up for an email
+      // that already has an account with a user that has no identities (and
+      // no error, so addresses cannot be probed). Report it as before.
+      if (data?.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+        throw new Error('This email is already registered. Please sign in instead.');
+      }
+
+      // No session: the account exists but waits for the link in the inbox.
+      // The profile details were saved server-side from the metadata above.
+      if (!data?.session) {
+        isAuthAction.current = false;
+        setLoading(false);
+        clearPasswordRecoveryPending();
+        return { success: true, needsEmailConfirmation: true, email };
+      }
+
+      const normalizedAddress = normalizeProfileAddressFields(profileFields);
+      const profilePayload = {
+        id: data.user.id,
+        email,
+        name: profileFields.name,
+        facebook_name: profileFields.facebook_name || null,
+        phone: profileFields.phone || null,
+        role: 'customer',
+        address_lot_block: normalizedAddress.address_lot_block || null,
+        address_street: normalizedAddress.address_street || null,
+        address_barangay: normalizedAddress.address_barangay || null,
+        address_city: normalizedAddress.address_city || null,
+        address_province: normalizedAddress.address_province || null,
+        address_landmark: normalizedAddress.address_landmark || null,
+        wants_announcements: profileFields.wants_announcements === true,
+      };
+
+      // The auth user now exists — Supabase has already handed this browser a
+      // live session for it, whether or not the rest of this function
+      // succeeds. That means a thrown error from here on must never just
+      // report failure: ProtectedRoute requires a `userProfile`, and with none
+      // set this account would be signed in but permanently bounced back to
+      // /login, with no profile row for a retry and "already registered"
+      // blocking a second signUp(). Every path below ends in fetchProfile()
+      // so the account is always left usable.
+      let profileSaved = true;
+      try {
+        await createProfile(profilePayload);
+      } catch (profileError) {
+        // One retry: registration is a multi-request sequence, and the most
+        // likely cause of a failure here is a transient network blip rather
+        // than a real conflict — worth one more try before accepting the
+        // address/phone details are lost.
+        await new Promise(resolve => setTimeout(resolve, 800));
+        try {
+          await createProfile(profilePayload);
+        } catch (retryError) {
+          profileSaved = false;
+        }
+      }
+
+      // Always attempt to load the profile. The trigger's baseline row means
+      // this succeeds even when both createProfile attempts above failed —
+      // that is what turns a failed detail-write into "the account exists and
+      // is usable, please finish your profile" instead of a dead end.
+      const fetchResult = await fetchProfile(data.user.id);
+      isAuthAction.current = false;
+
+      if (!fetchResult.success) {
+        // Genuinely nothing usable came back (e.g. the network is down for
+        // this whole request sequence) — surface the real failure rather than
+        // pretending the account is ready.
+        throw new Error(
+          profileSaved
+            ? `Account created, but we could not load your profile: ${fetchResult.error?.message || 'Unknown error'}. Please try logging in.`
+            : 'Your account was created, but we could not save your address and phone number. Please log in and complete your profile from the Profile page.'
+        );
+      }
+
+      clearPasswordRecoveryPending();
+      return { success: true, user: data.user, profileIncomplete: !profileSaved };
+    } catch (error) {
+      isAuthAction.current = false;
+      setAuthTransition(null);
+      setLoading(false);
+      return { success: false, error: friendlySignupError(error) };
+    }
+  };
+
+  const logout = useCallback(async () => {
+    const signedInUserId = user?.id;
+
+    // Logged HERE, not at a button. There are two ways out — the sidebar and
+    // the profile page — and only the sidebar was logging it, so half of every
+    // admin's sessions ended with no record. This is the one funnel both go
+    // through, and it fires while the session still exists: after signOut()
+    // there is no auth.uid() for guard_activity_log_insert to attribute the
+    // row to, and the insert would be dropped.
+    if (signedInUserId) {
+      await logAuth(userProfile?.role === 'admin' ? 'Admin Logged Out' : 'User Logged Out', {
+        recordId: signedInUserId,
+        recordRef: userProfile?.name || 'Authenticated user',
+        details: 'Session ended.',
+      });
+    }
+
+    // Remove only this browser/device registration before signOut(). The
+    // database RPC uses the current auth session and leaves the same account's
+    // registrations on other phones untouched.
+    if (signedInUserId) {
+      try {
+        await Promise.race([
+          import('../lib/push-notifications').then(({ disablePushForCurrentDevice }) =>
+            disablePushForCurrentDevice(signedInUserId)
+          ),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Push disable timeout')), 3000))
+        ]);
+      } catch {
+        // Logout must still complete if the browser push API or network is
+        // unavailable. The next account's explicit enable can claim the device.
+      }
+    }
+
+    // Clear local state immediately so user is logged out even if offline
+    lastProfileUserId.current = null;
+    setAuthTransition(null);
+    setUser(null);
+    setUserProfile(null);
+    setLoading(false);
+
+    // Remove only account/session data; preserve unrelated device preferences.
+    try {
+      clearBookingDraftStorage(signedInUserId);
+      clearSupabaseAuthStorage();
+      clearPasswordRecoveryPending();
+      localStorage.removeItem('cargoexpress_cached_profile');
+      if (signedInUserId) localStorage.removeItem(`user_profile_${signedInUserId}`);
+      sessionStorage.removeItem('fcm_asked');
+      sessionStorage.removeItem('admin_fcm_asked');
+    } catch (e) {
+      // Storage access can fail in some browsers (e.g. incognito Safari)
+    }
+
+    try {
+      await supabase.auth.signOut();
+    } catch (error) {
+      // Silently handle sign out errors — local state is already cleared
+    }
+    
+    return { success: true };
+  }, [user, userProfile]);
+
+  // A password-recovery token creates a temporary authenticated session, but
+  // abandoning the reset is not a normal account logout. Remove that session
+  // from this browser only: do not revoke sessions on the customer's other
+  // devices, write a logout activity entry, or disable push notifications.
+  const discardPasswordRecovery = useCallback(async () => {
+    lastProfileUserId.current = null;
+    setAuthTransition(null);
+    setUser(null);
+    setUserProfile(null);
+    setLoading(false);
+
+    try {
+      await supabase.auth.signOut({ scope: 'local' });
+    } catch {
+      // Local cleanup below is the reliable fallback when the SDK cannot
+      // complete its own storage operation (for example restricted storage).
+    }
+    clearSupabaseAuthStorage();
+    clearPasswordRecoveryPending();
+
+    return { success: true };
+  }, []);
+
+  // Finishing a password reset revokes the recovery session (and any other
+  // sessions for that account) without treating the temporary auth session
+  // as an ordinary app logout. In particular, there may still be stale user
+  // state from a different account when the link was opened in an active tab.
+  const completePasswordRecovery = useCallback(async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch {
+      // Always clear this browser's temporary session below.
+    }
+    clearSupabaseAuthStorage();
+    clearPasswordRecoveryPending();
+    lastProfileUserId.current = null;
+    setAuthTransition(null);
+    setUser(null);
+    setUserProfile(null);
+    setLoading(false);
+    return { success: true };
+  }, []);
+
+  const resetPassword = useCallback(async (email) => {
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: getPasswordResetRedirectUrl(),
+      });
+      if (error) throw error;
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }, []);
+
+  const resendSignupConfirmation = useCallback(async (email) => {
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email,
+        options: { emailRedirectTo: getSignupRedirectUrl() },
+      });
+      if (error) throw error;
+      return { success: true };
+    } catch (error) {
+      const msg = error.message || '';
+      return {
+        success: false,
+        error: /rate limit|too many|seconds/i.test(msg)
+          ? 'Please wait a minute before requesting another email.'
+          : 'We could not send the email. Please try again.',
+      };
+    }
+  }, []);
+
+  const changePassword = useCallback(async (newPassword) => {
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) throw error;
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }, []);
+
+  /**
+   * changeEmail — world-class email update flow:
+   * 1. Re-authenticates with the current password (Supabase rejects sensitive
+   *    updates when the session is older than ~1 hour).
+   * 2. Requests the change via supabase.auth.updateUser({ email }).
+   * 3. Supabase emails a confirmation link to the NEW address; the email only
+   *    changes after the link is clicked (USER_UPDATED event + DB trigger sync
+   *    the profiles.email column).
+   */
+  const changeEmail = useCallback(async (newEmail, currentPassword) => {
+    try {
+      if (!user?.email) throw new Error('You are not logged in.');
+
+      // 1) Re-authenticate with the current password
+      const { error: verifyError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: currentPassword,
+      });
+      if (verifyError) {
+        if (verifyError.message?.toLowerCase().includes('invalid login')) {
+          throw new Error('Current password is incorrect.');
+        }
+        throw verifyError;
+      }
+
+      // 2) Request the email change
+      const { error } = await supabase.auth.updateUser({ email: newEmail });
+      if (error) throw error;
+      return { success: true };
+    } catch (error) {
+      let msg = error.message || 'Failed to update email. Please try again.';
+      if (msg.toLowerCase().includes('email already registered') ||
+          msg.toLowerCase().includes('already been registered')) {
+        msg = 'This email is already registered to another account.';
+      } else if (msg.toLowerCase().includes('rate limit') ||
+                 msg.toLowerCase().includes('too many')) {
+        msg = 'Too many attempts. Please wait a few minutes and try again.';
+      }
+      return { success: false, error: msg };
+    }
+  }, [user?.email]);
+
+  /**
+   * refreshProfile — re-fetches the profiles row from Supabase and updates context state.
+   * Call this after any profile save to keep the UI in sync without a full page reload.
+   */
+  const refreshProfile = useCallback(async () => {
+    if (user) await fetchProfile(user.id);
+  }, [user]);
+
+  const completeRegistrationTransition = useCallback(() => {
+    setAuthTransition(current => (
+      current === AUTH_TRANSITIONS.REGISTERING ? null : current
+    ));
+  }, []);
+
+  // If network recovers, automatically refresh profile in case it was a minimal fallback
+  useNetworkRecovery(refreshProfile);
+
+  const value = useMemo(() => ({
+    user,
+    userProfile,
+    loading,
+    authTransition,
+    isAdmin: userProfile?.role === 'admin',
+    isCustomer: userProfile?.role === 'customer',
+    login,
+    register,
+    completeRegistrationTransition,
+    logout,
+    discardPasswordRecovery,
+    completePasswordRecovery,
+    resetPassword,
+    resendSignupConfirmation,
+    changePassword,
+    changeEmail,
+    refreshProfile,
+  }), [user, userProfile, loading, authTransition, logout, discardPasswordRecovery, completePasswordRecovery, resetPassword, resendSignupConfirmation, changePassword, changeEmail, refreshProfile, completeRegistrationTransition]);
+
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+export { AuthContext };

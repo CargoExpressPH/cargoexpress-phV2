@@ -1,0 +1,402 @@
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { getActivityLogs, getActivityLogsForExport } from '../../lib/database';
+import { supabase } from '../../lib/supabase';
+import { CenteredSpinner } from '../../components/ui/Loader';
+import EmptyState from '../../components/ui/EmptyState';
+import CustomSelect from '../../components/ui/CustomSelect';
+import usePageTitle from '../../hooks/usePageTitle';
+import { useToast } from '../../hooks/useToast';
+import {
+  ClipboardList, Search, ChevronLeft, ChevronRight,
+  Download, Package, Truck, CreditCard, MessageSquare, Shield, Settings, FileText,
+  RefreshCw, Clock, User
+} from 'lucide-react';
+
+// Labels render at 11.2px — body-size text, so these use the AA text tokens
+// rather than the raw semantic colours (which measured 3.30–4.23:1 on white).
+const MODULE_COLORS = {
+  Orders:         { bg: 'var(--primary-glow)', color: 'var(--primary-text)', icon: Package },
+  Trips:          { bg: 'var(--success-glow)', color: 'var(--success-text)', icon: Truck },
+  Payments:       { bg: 'var(--warning-bg)', color: 'var(--warning-text)', icon: CreditCard },
+  Chat:           { bg: 'color-mix(in srgb, var(--chart-1) 12%, transparent)', color: 'var(--chart-purple-text)', icon: MessageSquare },
+  Authentication: { bg: 'var(--error-glow)', color: 'var(--error-text)', icon: Shield },
+  System:         { bg: 'var(--border-light)', color: 'var(--text-secondary)', icon: Settings },
+  // Admitted by 20260816120000. SalesPage and ReportsPage had been writing
+  // 'Sales & Reports' into a CHECK-constrained column that did not list it,
+  // so every report print and export was rejected and silently swallowed by
+  // logActivity's console.warn — and this page had no filter for a module it
+  // could never receive.
+  'Sales & Reports': { bg: 'var(--info-bg)', color: 'var(--info-text)', icon: FileText },
+  Customers:      { bg: 'var(--info-bg)', color: 'var(--info-text)', icon: Shield },
+  Feedback:       { bg: 'var(--warning-bg)', color: 'var(--warning-text)', icon: MessageSquare },
+};
+
+// Customers is intentionally absent: the Customers screen is read-only, so it
+// has no admin action to audit. Customer-created bookings remain under Orders.
+const MODULES = ['All', 'Orders', 'Trips', 'Payments', 'Chat', 'Authentication', 'System', 'Sales & Reports', 'Feedback'];
+
+const ModuleBadge = ({ module }) => {
+  const cfg = MODULE_COLORS[module] || MODULE_COLORS.System;
+  const Icon = cfg.icon;
+  return (
+    <span className="inline-flex items-center text-uppercase" style={{gap: 4,
+      padding: '2px 8px', borderRadius: 'var(--radius-full)', fontSize: 'var(--text-12)',
+      fontWeight: 700, letterSpacing: '0.04em', background: cfg.bg, color: cfg.color,
+    }}>
+      <Icon size={10} />
+      {module}
+    </span>
+  );
+};
+
+const formatDate = (iso) => {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })
+    + ' ' + d.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
+};
+
+const ActivityLogsPage = () => {
+  usePageTitle('Activity Logs');
+  // Destructured, not the whole toast object: ToastProvider builds its context
+  // value inline, so `useToast()` returns a NEW object on every toast render.
+  // Putting that in loadLogs' dep array would recreate the callback, refire the
+  // effect, and loop — fetch fails, toast, refetch, fails. `error` itself is
+  // useCallback'd with stable deps, so it is safe to depend on.
+  const { error: showError } = useToast();
+
+  const [logs, setLogs] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
+  const [liveStatus, setLiveStatus] = useState(
+    typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'connecting'
+  );
+  const [page, setPage] = useState(1);
+  const requestIdRef = useRef(0);
+  const loadingRequestIdRef = useRef(0);
+  const PAGE_SIZE = 50;
+
+  // Filters. Three, deliberately.
+  //
+  // A free-text Action box, an Admin dropdown and a From/To date pair were
+  // removed here. The first two were already covered: getActivityLogs' `search`
+  // does an OR ilike across action, admin_name, record_ref AND details, so
+  // typing a name or an action into Search matches strictly more than the
+  // dedicated inputs did. The dates were unreachable in practice —
+  // purge_old_activity_logs deletes anything older than 7 days, so a date
+  // range could only ever narrow a week.
+  const [search, setSearch] = useState('');
+  const [module, setModule] = useState('');
+  const [hideLogins, setHideLogins] = useState(true);
+
+  // Debounced search
+  const [searchInput, setSearchInput] = useState('');
+
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput), 400);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  const loadLogs = useCallback(async ({ silent = false } = {}) => {
+    const requestId = ++requestIdRef.current;
+    if (!silent) {
+      loadingRequestIdRef.current = requestId;
+      setLoading(true);
+    }
+    try {
+      // action / adminId / dateFrom / dateTo are simply not passed. Every one
+      // of them already defaults to null in getActivityLogs, and each clause is
+      // applied only `if (value)` — so omitting them and passing null produce
+      // the identical query. Omitting keeps the call describing what this
+      // screen actually offers.
+      const result = await getActivityLogs({
+        module: module || null,
+        search: search || null,
+        hideLogins,
+        page,
+        pageSize: PAGE_SIZE,
+      });
+      if (requestId === requestIdRef.current) {
+        setLogs(result.logs);
+        setTotal(result.total);
+      }
+    } catch (err) {
+      console.error('Failed to load activity logs:', err);
+      // Without this the table just renders empty, which is indistinguishable
+      // from "no activity matched your filters" — the one reading an audit log
+      // is the last person who should be guessing whether it actually loaded.
+      if (!silent) {
+        showError('Could not load activity logs. Check your connection and try again.');
+      }
+    } finally {
+      if (!silent && requestId === loadingRequestIdRef.current) setLoading(false);
+    }
+  }, [module, search, hideLogins, page, showError]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [module, search, hideLogins]);
+
+  useEffect(() => {
+    loadLogs();
+  }, [loadLogs]);
+
+  useEffect(() => {
+    let refreshTimer = null;
+    const scheduleRefresh = () => {
+      clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => void loadLogs({ silent: true }), 250);
+    };
+
+    const channel = supabase
+      .channel('admin-activity-logs-live')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'activity_logs',
+      }, scheduleRefresh)
+      .subscribe(status => {
+        if (status === 'SUBSCRIBED') {
+          setLiveStatus('live');
+          scheduleRefresh();
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          setLiveStatus(typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'connecting');
+        }
+      });
+
+    const handleOnline = () => {
+      setLiveStatus('connecting');
+      supabase.realtime.connect();
+      scheduleRefresh();
+    };
+    const handleOffline = () => setLiveStatus('offline');
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') scheduleRefresh();
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('focus', scheduleRefresh);
+    document.addEventListener('visibilitychange', handleVisibility);
+    const safetyRefresh = setInterval(scheduleRefresh, 60000);
+
+    return () => {
+      clearTimeout(refreshTimer);
+      clearInterval(safetyRefresh);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('focus', scheduleRefresh);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      void supabase.removeChannel(channel);
+    };
+  }, [loadLogs]);
+
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+
+  const exportCSV = async () => {
+    setExporting(true);
+    try {
+      const exportLogs = await getActivityLogsForExport({
+        module: module || null,
+        search: search || null,
+        hideLogins,
+      });
+      const headers = ['Date & Time', 'Performed By', 'Module', 'Action', 'Reference', 'Details'];
+      const rows = exportLogs.map(l => [
+        formatDate(l.created_at),
+        l.admin_name,
+        l.module,
+        l.action,
+        l.record_ref || '',
+        l.details || '',
+      ]);
+      const csvCell = (value) => {
+        let text = String(value ?? '');
+        if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+        return `"${text.replace(/"/g, '""')}"`;
+      };
+      const csv = [headers, ...rows].map(row => row.map(csvCell).join(',')).join('\r\n');
+      const blob = new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `activity-logs-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    } catch (err) {
+      console.error('Failed to export activity logs:', err);
+      showError('Could not export activity logs. Check your connection and try again.');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  return (
+    <div className="page-transition">
+      <div className="admin-page-header">
+        <div>
+          <h1 className="admin-page-title">
+            <ClipboardList size={24} color="var(--primary)" aria-hidden="true" />
+            Activity Logs
+          </h1>
+          <p className="admin-page-subtitle">Audit trail of system actions. Logs are kept for 7 days, then deleted automatically.</p>
+        </div>
+        <div className="admin-page-meta">
+          <span className={`activity-logs-live-status activity-logs-live-status--${liveStatus}`} role="status" aria-live="polite">
+            <span className="activity-logs-live-dot" aria-hidden="true" />
+            {liveStatus === 'live' ? 'Live updates' : liveStatus === 'offline' ? 'Offline' : 'Connecting'}
+          </span>
+          <button className="btn btn-outline btn-sm" onClick={exportCSV} disabled={total === 0 || exporting}>
+            {exporting ? <RefreshCw size={15} className="animate-spin" /> : <Download size={15} />}
+            {exporting ? 'Exporting all...' : 'Export CSV'}
+          </button>
+        </div>
+      </div>
+
+      {/* Filters — one row: Search, Module, Hide sign in/out, Clear.
+          The old layout was a `repeat(auto-fill, minmax(180px, 1fr))` grid of
+          seven controls under a "Filters" heading, with the checkbox orphaned
+          on a line of its own below it. With three controls left, the heading
+          and the grid were both scaffolding for a complexity that is gone. */}
+      <div className="card mb-16 stagger-item activity-logs-filters">
+        <div className="card-body">
+          <div className="activity-logs-filter-bar">
+            <div className="form-input-wrapper activity-logs-search">
+              <Search size={15} className="form-input-icon" aria-hidden="true" />
+              <input
+                id="activity-search"
+                type="text"
+                className="form-input form-input-icon-left"
+                placeholder="Search actions, admins, or refs..."
+                aria-label="Search activity logs by action, admin, or reference"
+                value={searchInput}
+                onChange={e => setSearchInput(e.target.value)}
+              />
+            </div>
+
+            <CustomSelect
+              className="form-control activity-logs-module"
+              value={module}
+              onChange={e => setModule(e.target.value)}
+              aria-label="Filter by module"
+              placement="bottom"
+            >
+              {MODULES.map(m => <option key={m} value={m === 'All' ? '' : m}>{m}</option>)}
+            </CustomSelect>
+
+            <label className="activity-logs-hide-logins">
+              <input
+                type="checkbox"
+                checked={hideLogins}
+                onChange={e => setHideLogins(e.target.checked)}
+              />
+              Hide sign in/out
+            </label>
+
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm activity-logs-clear"
+              onClick={() => { setSearchInput(''); setSearch(''); setModule(''); setHideLogins(true); }}
+            >
+              Clear Filters
+            </button>
+          </div>
+        </div>
+      </div>
+      {/* Results summary */}
+      <div className="flex items-center justify-between mb-12 text-sm text-secondary">
+        <span>{total.toLocaleString()} {total === 1 ? 'entry' : 'entries'} found</span>
+        {totalPages > 1 && (
+          <span>Page {page} of {totalPages}</span>
+        )}
+      </div>
+
+      {/* Table */}
+      <div className="card stagger-item activity-logs-table-card">
+        {loading ? (
+          <div className="card-body"><CenteredSpinner /></div>
+        ) : logs.length === 0 ? (
+          <EmptyState
+            icon={ClipboardList}
+            title="No activity logs found"
+            description={module
+              ? `No ${module} activity has been recorded during the 7-day retention period.`
+              : 'Actions performed by admins will appear here as activity occurs.'}
+          />
+        ) : (
+          <div className="table-container">
+            <table className="data-table data-table--wide">
+              <thead>
+                <tr>
+                  {['Date & Time', 'Performed By', 'Module', 'Action', 'Reference', 'Details'].map(h => (
+                    <th key={h} scope="col">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {logs.map((log) => (
+                  <tr key={log.id}>
+                    <td data-label="Date & Time">
+                      <div className="flex items-center gap-6 text-secondary">
+                        <Clock size={12} />
+                        {formatDate(log.created_at)}
+                      </div>
+                    </td>
+                    <td data-label="Performed By">
+                      <div className="flex items-center gap-6">
+                        <User size={12} color="var(--text-tertiary)" />
+                        <span className="font-bold">{log.admin_name}</span>
+                      </div>
+                    </td>
+                    <td data-label="Module">
+                      <ModuleBadge module={log.module} />
+                    </td>
+                    <td data-label="Action" className="font-semibold">
+                      {log.action}
+                    </td>
+                    <td data-label="Reference">
+                      {log.record_ref ? (
+                        <span className="activity-log-reference">{log.record_ref}</span>
+                      ) : '—'}
+                    </td>
+                    <td data-label="Details" className="details-cell">
+                      {log.details || '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-8 mt-16">
+          <button
+            className="btn btn-outline btn-sm"
+            onClick={() => setPage(p => Math.max(1, p - 1))}
+            disabled={page === 1}
+          >
+            <ChevronLeft size={16} /> Prev
+          </button>
+          <span className="text-sm text-secondary">
+            {page} / {totalPages}
+          </span>
+          <button
+            className="btn btn-outline btn-sm"
+            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+            disabled={page === totalPages}
+          >
+            Next <ChevronRight size={16} />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default ActivityLogsPage;

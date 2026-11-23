@@ -1,0 +1,1527 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   ABOUT PAGE — World-Class Premium Styles
+   Dedicated stylesheet for the public About / Landing page
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Keyframes ── */
+@keyframes aboutFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes aboutSlideUp { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes aboutPulseGlow {
+  0% { box-shadow: 0 0 0 0 rgba(var(--primary-rgb), 0.4); }
+  70% { box-shadow: 0 0 0 15px rgba(var(--primary-rgb), 0); }
+  100% { box-shadow: 0 0 0 0 rgba(var(--primary-rgb), 0); }
+}
+@keyframes aboutShimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+@keyframes aboutScrollHint {
+  0%, 20%, 50%, 80%, 100% { transform: translateY(0) translateX(-50%); }
+  40% { transform: translateY(12px) translateX(-50%); }
+  60% { transform: translateY(6px) translateX(-50%); }
+}
+@keyframes aboutFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+@keyframes aboutProgressPulse {
+  0%, 100% { opacity: 0.8; }
+  50% { opacity: 1; }
+}
+/* ── Glass Navigation ── */
+.about-glass-nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  padding: 16px 5%;
+  transition: background-color 0.35s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.35s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: background-color, box-shadow;
+}
+.about-glass-nav.scrolled {
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: var(--shadow-md);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.about-nav-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.about-nav-links {
+  display: none;
+  align-items: center;
+  gap: 16px;
+}
+@media (min-width: 768px) {
+  .about-nav-links {
+    display: flex;
+    /* Two more section links (Trip Schedules, FAQ) than this nav was
+       originally sized for — let it shrink and scroll horizontally on
+       narrower desktop widths instead of overflowing the nav bar. */
+    flex: 1 1 auto;
+    justify-content: flex-end;
+    margin-right: 32px;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .about-nav-links::-webkit-scrollbar { display: none; }
+  .about-nav-link { flex-shrink: 0; }
+}
+.about-nav-link {
+  position: relative;
+  padding: 8px 14px;
+  border-radius: 100px;
+  font-size: var(--text-16);
+  font-weight: 600;
+  text-decoration: none;
+  transition: background-color 0.25s ease, color 0.25s ease;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+}
+.about-nav-link.transparent { color: rgba(255,255,255,0.8); }
+.about-nav-link.scrolled { color: var(--text-secondary); }
+.about-nav-link:hover { background: rgba(var(--primary-rgb), 0.1); color: var(--primary-text); }
+.about-nav-link.active {
+  background: rgba(var(--primary-rgb), 0.12);
+  color: var(--primary-text);
+  font-weight: 700;
+}
+
+.about-login-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: 100px;
+  color: #fff;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: var(--text-14);
+  transition: transform 0.25s ease, background-color 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease, color 0.25s ease;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+/* Phones only have room for "Dashboard" beside the brand; "Go to" returns
+   once the row is wide enough. */
+@media (max-width: 480px) {
+  .about-login-btn-prefix { display: none; }
+}
+/* On the narrowest phones the brand leaves ~105px, so drop the arrow and
+   tighten the padding to keep the button inside the nav bar. */
+@media (max-width: 360px) {
+  .about-login-btn { padding: 10px 12px; }
+  .about-login-btn svg { display: none; }
+}
+.about-login-btn.transparent {
+  background: rgba(255,255,255,0.15);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,0.2);
+}
+.about-login-btn.scrolled {
+  background: var(--text);
+}
+.about-login-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+
+/* ── Scroll Progress Bar ── */
+.about-scroll-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--primary), var(--accent-light));
+  z-index: 1001;
+  transition: width 0.05s linear;
+  border-radius: 0 2px 2px 0;
+}
+
+/* ── Hero Section ── */
+.about-hero {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+@media (min-width: 900px) {
+  .about-hero {
+    height: 92vh;
+    min-height: 640px;
+  }
+}
+.about-hero-content {
+  position: relative;
+  z-index: 10;
+  text-align: center;
+  max-width: 900px;
+  padding: 0 24px;
+  padding-bottom: 80px;
+}
+
+/* Shimmer badge */
+.about-hero-badge {
+  display: inline-block;
+  padding: 8px 24px;
+  border-radius: 100px;
+  background: rgba(255,255,255,0.08);
+  backdrop-filter: blur(10px);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.18);
+  margin-bottom: 24px;
+  font-size: var(--text-16) !important;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  position: relative;
+  overflow: hidden;
+}
+.about-hero-badge::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+  background-size: 200% 100%;
+  animation: aboutShimmer 3s ease-in-out infinite;
+}
+
+/* Hero CTA buttons */
+.about-hero-cta-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 36px;
+  border-radius: 100px;
+  /* 16px/700 is not "large text" (needs >=18.66px bold), so white on --primary
+     at 3.30:1 fails AA. This is the landing page's primary CTA. */
+  background: var(--primary-fill);
+  color: #fff;
+  text-decoration: none;
+  font-weight: 700;
+  font-size: var(--text-16);
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.3s ease;
+  will-change: transform;
+  box-shadow: 0 10px 30px rgba(var(--primary-rgb), 0.4);
+  border: none;
+  cursor: pointer;
+}
+.about-hero-cta-primary:hover {
+  transform: translateY(-3px) scale(1.02);
+  box-shadow: 0 16px 40px rgba(var(--primary-rgb), 0.5);
+}
+.about-hero-cta-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 32px;
+  border-radius: 100px;
+  background: rgba(255,255,255,0.1);
+  backdrop-filter: blur(10px);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.2);
+  text-decoration: none;
+  font-weight: 700;
+  font-size: var(--text-16);
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+  will-change: transform;
+  cursor: pointer;
+}
+/* base.css sets a global `a:hover { color: var(--primary-dark) }` with no
+   device gating, and it outranks this button's own unqualified base `color`
+   rule on specificity — so a touch tap's "sticky hover" (:hover still
+   matches on tap even though the (hover: hover) media feature below is
+   false) would otherwise recolor the text away from white regardless of the
+   media query. Pin it back here at matching specificity before deciding,
+   per hover capability, what :hover should actually look like. */
+.about-hero-cta-secondary:hover {
+  color: #fff;
+}
+/* Hover-invert (translucent glass -> solid white pill + dark text) only on
+   devices with real hover (mouse/trackpad). This pill sits on a fixed dark
+   hero photo regardless of the site's light/dark theme, so its readable
+   hover text color below is hardcoded (see the sibling #0f172a usage on
+   .about-leaflet-map .leaflet-control-zoom a above) rather than var(--text) —
+   var(--text) flips to a near-white color in dark theme, which combined
+   with this same near-white hover background rendered invisible text.
+   Gating on (hover: hover) also stops the recolor from ever being applied
+   on touch, where tapping triggers :hover with no matching mouseleave — on
+   Android Chrome this can be left "stuck" showing a stale/partial repaint
+   when the page is restored from the back-forward cache after the tap
+   navigated out to an external app (e.g. Facebook) and back. */
+@media (hover: hover) and (pointer: fine) {
+  .about-hero-cta-secondary:hover {
+    background: rgba(255,255,255,0.95);
+    color: #0f172a;
+    border-color: transparent;
+    transform: translateY(-2px);
+  }
+  /* Pressing while already hovered (mouse) stays inside the hover palette
+     above — only nudge the lift so contrast never drops mid-click. */
+  .about-hero-cta-secondary:active {
+    transform: translateY(-1px) scale(0.98);
+  }
+}
+/* Touch feedback where hover never applies: :active releases on
+   touchend/pointerup rather than lingering the way :hover can, so a brief
+   non-inverting tint is enough — text stays the button's own readable white
+   throughout instead of switching palettes mid-tap. */
+@media (hover: none), (pointer: coarse) {
+  .about-hero-cta-secondary:active {
+    background: rgba(255,255,255,0.3);
+    border-color: rgba(255,255,255,0.45);
+    transform: translateY(0) scale(0.98);
+    transition-duration: 0.1s;
+  }
+}
+
+/* Scroll hint arrow */
+.about-scroll-hint {
+  position: absolute;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  animation: aboutScrollHint 2s ease infinite;
+  color: rgba(255,255,255,0.6);
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 8px;
+}
+.about-scroll-hint:hover { color: rgba(255,255,255,0.9); }
+
+/* ── Content Wrapper ── */
+/* max-width must stay relative to the container, not just the 1200px cap.
+   This is a stretched flex item in a column flex container (.public-about-page),
+   so a bare `max-width: 1200px` never constrains it to the viewport and its
+   min-content floor (372px) wins instead. Below 372px that overflowed a parent
+   with `overflow-x: hidden`, clipping body text unreachably — a WCAG 1.4.10
+   Reflow failure at the required 320px. `min()` keeps the 1200px desktop cap. */
+.about-content-wrapper {
+  max-width: min(1200px, 100%);
+  margin: 0 auto;
+  padding: 80px 20px 0;
+}
+@media (min-width: 768px) {
+  .about-content-wrapper {
+    padding: 120px 5% 0;
+  }
+}
+
+/* ── Responsive Section Spacing ── */
+.about-section {
+  margin-bottom: 64px;
+}
+@media (min-width: 768px) {
+  .about-section { margin-bottom: 120px; }
+}
+
+/* ── Section Headers ── */
+.about-section-label {
+  color: var(--primary-text);
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  font-size: var(--text-14);
+}
+.about-section-title {
+  font-size: clamp(1.75rem, 3.5vw, 2.5rem);
+  font-weight: 700;
+  letter-spacing: -1px;
+  color: var(--text);
+}
+
+/* ── Text Gradient ── */
+.about-text-gradient {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--accent-light) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── Grid Layouts ── */
+.about-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 40px;
+  align-items: center;
+}
+@media (min-width: 900px) {
+  .about-grid-2 { grid-template-columns: 1fr 1fr; gap: 64px; }
+}
+
+/* ── Story Image ── */
+.about-story-image-container {
+  display: block;
+  position: relative;
+  padding: 24px 8% 48px;
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+}
+@media (min-width: 900px) {
+  .about-story-image-container {
+    padding: 10%;
+    margin: 0;
+    max-width: none;
+  }
+}
+.about-story-main-img {
+  width: 100%;
+  border-radius: 24px;
+  box-shadow: 0 30px 60px rgba(0,0,0,0.12);
+  position: relative;
+  z-index: 10;
+  transform: rotate(-3deg);
+  transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.about-story-image-container:hover .about-story-main-img { transform: rotate(0deg); }
+.about-story-overlay-img {
+  position: absolute;
+  bottom: -20px;
+  right: -20px;
+  width: 50%;
+  border-radius: 16px;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+  z-index: 20;
+  border: 6px solid var(--surface);
+  transform: rotate(5deg);
+  transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.about-story-image-container:hover .about-story-overlay-img { transform: rotate(0deg) scale(1.02); }
+
+/* ── Decorative Dot Pattern ── */
+.about-dot-pattern {
+  position: absolute;
+  width: 120px;
+  height: 120px;
+  background-image: radial-gradient(circle, rgba(var(--primary-rgb), 0.15) 1.5px, transparent 1.5px);
+  background-size: 12px 12px;
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* ── Timeline (Story section) ── */
+.about-timeline {
+  margin-top: 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  position: relative;
+  padding-left: 28px;
+}
+.about-timeline::before {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  background: linear-gradient(to bottom, var(--primary), rgba(var(--primary-rgb), 0.15));
+  border-radius: 2px;
+}
+.about-timeline-item {
+  position: relative;
+  padding: 12px 0;
+}
+.about-timeline-dot {
+  position: absolute;
+  left: -24px;
+  top: 18px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--primary);
+  border: 3px solid var(--surface);
+  box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.2);
+}
+.about-timeline-year {
+  font-size: var(--text-12);
+  font-weight: 700;
+  /* 12px text — --primary is 3.30:1 on the surface, needs the AA token. */
+  color: var(--primary-text);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+.about-timeline-text {
+  font-size: var(--text-16);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  font-weight: 500;
+}
+
+/* ── Bento Feature Cards ── */
+.about-bento-card {
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 24px;
+  padding: 28px;
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border-light);
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.4s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.3s ease;
+}
+@media (min-width: 768px) {
+  .about-bento-card { padding: 32px; }
+}
+.about-bento-card:hover {
+  transform: translateY(-6px);
+  box-shadow: var(--shadow-lg);
+  border-color: rgba(var(--primary-rgb), 0.15);
+}
+
+.about-feature-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, rgba(var(--primary-rgb), 0.12), rgba(var(--primary-rgb), 0.04));
+  color: var(--primary);
+  margin-bottom: 20px;
+  transition: transform 0.3s ease;
+}
+.about-bento-card:hover .about-feature-icon {
+  transform: scale(1.1) rotate(5deg);
+}
+
+/* ── Coverage Section ── */
+.about-coverage-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 32px;
+  align-items: start;
+  min-width: 0;
+}
+.about-coverage-grid > * { min-width: 0; }
+@media (min-width: 900px) {
+  .about-coverage-grid {
+    grid-template-columns: 1.2fr 2fr;
+    gap: 48px;
+  }
+}
+.about-coverage-regions {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+}
+.about-region-card {
+  width: 100%;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  padding: 24px 20px;
+  border-radius: 24px;
+  transition: transform 0.3s ease, background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+  cursor: pointer;
+  overflow: hidden;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+}
+.about-region-card:focus-visible {
+  outline: 3px solid rgba(var(--primary-rgb), 0.35);
+  outline-offset: 3px;
+}
+.about-region-card:hover {
+  border-color: rgba(var(--primary-rgb), 0.25);
+  box-shadow: 0 4px 16px rgba(var(--primary-rgb), 0.08);
+}
+.about-region-card.selected {
+  background: rgba(var(--primary-rgb), 0.06);
+  border: 2px solid var(--primary);
+  box-shadow: 0 8px 30px rgba(var(--primary-rgb), 0.12);
+}
+.about-muni-tag {
+  display: inline-block;
+  padding: 6px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: 100px;
+  font-size: var(--text-13);
+  font-weight: 600;
+  color: var(--text-secondary);
+  box-shadow: var(--shadow-xs);
+  transition: color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
+}
+.about-region-card.selected .about-muni-tag {
+  border-color: rgba(var(--primary-rgb), 0.2);
+  color: var(--primary-text);
+}
+
+@media (max-width: 640px) {
+  .about-map-box { height: 380px; border-radius: 20px; }
+  .about-region-card { padding: 20px 16px; border-radius: 20px; }
+}
+
+/* ── Gallery / Highlights ── */
+.about-highlight-card {
+  position: relative;
+  height: 320px;
+  border-radius: 24px;
+  overflow: hidden;
+  cursor: pointer;
+  border: none;
+  padding: 0;
+  background: var(--bg-secondary);
+  width: 100%;
+  text-align: left;
+  display: block;
+  outline: none;
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.4s ease;
+}
+.about-highlight-card:hover {
+  transform: translateY(-8px);
+  box-shadow: var(--shadow-xl);
+}
+.about-highlight-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.about-highlight-card:hover img {
+  transform: scale(1.08);
+}
+.about-highlight-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.2) 40%, transparent 100%);
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 24px;
+}
+.about-highlight-card:hover .about-highlight-overlay {
+  opacity: 1;
+}
+.about-highlight-title {
+  color: #fff;
+  font-weight: 700;
+  font-size: var(--text-18);
+  transform: translateY(8px);
+  transition: transform 0.35s ease;
+}
+.about-highlight-card:hover .about-highlight-title { transform: translateY(0); }
+.about-highlight-caption {
+  color: rgba(255,255,255,0.85);
+  font-size: var(--text-14);
+  margin-top: 8px;
+  transform: translateY(8px);
+  transition: transform 0.35s ease 0.05s;
+}
+.about-highlight-card:hover .about-highlight-caption { transform: translateY(0); }
+.about-highlight-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 12px;
+  color: rgba(255,255,255,0.6);
+  font-size: var(--text-12);
+  transform: translateY(8px);
+  transition: transform 0.35s ease 0.1s;
+}
+.about-highlight-card:hover .about-highlight-meta { transform: translateY(0); }
+
+/* ── Lightbox ── */
+.about-lightbox-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.92);
+  backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: aboutFadeIn 0.2s ease-out;
+}
+.about-lightbox-close {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  background: rgba(255,255,255,0.1);
+  border: none;
+  color: #fff;
+  border-radius: 50%;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s;
+  z-index: 10;
+}
+.about-lightbox-close:hover { background: rgba(255,255,255,0.2); }
+.about-lightbox-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(255,255,255,0.1);
+  border: none;
+  color: #fff;
+  border-radius: 50%;
+  width: 52px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.2s ease, background-color 0.2s ease;
+  z-index: 10;
+}
+.about-lightbox-nav:hover { background: rgba(255,255,255,0.2); transform: translateY(-50%) scale(1.08); }
+.about-lightbox-nav.prev { left: 24px; }
+.about-lightbox-nav.next { right: 24px; }
+.about-lightbox-img {
+  max-width: 85%;
+  max-height: 85vh;
+  object-fit: contain;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  animation: aboutSlideUp 0.3s ease-out;
+}
+.about-lightbox-info {
+  position: absolute;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,0.6);
+  padding: 16px 28px;
+  border-radius: 16px;
+  backdrop-filter: blur(10px);
+  text-align: center;
+  max-width: 80%;
+}
+.about-lightbox-info-title {
+  color: #fff;
+  font-weight: 700;
+  font-size: var(--text-20);
+  margin-bottom: 4px;
+}
+.about-lightbox-info-desc {
+  color: rgba(255, 255, 255, 0.8);
+  font-size: var(--text-14);
+}
+.about-lightbox-info-counter {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: var(--text-12);
+  margin-top: 8px;
+}
+
+/* ── Testimonials / Feedback ── */
+.about-feedback-card {
+  position: relative;
+  background: var(--surface);
+  border-radius: 20px;
+  padding: 20px;
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border-light);
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.4s ease;
+  display: flex;
+  flex-direction: column;
+}
+.about-feedback-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-lg);
+}
+
+/* ── Feedback Filters ── */
+.about-feedback-filters {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 32px;
+  animation: aboutFadeIn 0.6s ease-out;
+}
+.about-filter-chips {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.about-filter-chip {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+  color: var(--text-secondary);
+  padding: 8px 18px;
+  border-radius: 99px;
+  font-size: var(--text-14);
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.25s ease, border-color 0.25s ease, color 0.25s ease, box-shadow 0.25s ease;
+  user-select: none;
+}
+.about-filter-chip:hover {
+  background: var(--border-light);
+  color: var(--text);
+  transform: translateY(-1px);
+}
+.about-filter-chip.active {
+  background: var(--primary-fill);
+  border-color: var(--primary-fill);
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(var(--primary-rgb), 0.35);
+}
+.about-filter-chip.active svg {
+  fill: #fff;
+}
+.about-filter-chip svg {
+  transition: fill 0.25s ease;
+}
+/* Dropdown: hidden on desktop (chips fit in one row there), shown once
+   narrower than the chips comfortably wrap — see the max-width: 640px
+   swap further down. */
+.about-filter-select-wrap { display: none; width: 100%; max-width: 280px; }
+.about-rating-select {
+  width: 100%;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+  color: var(--text);
+  padding: 10px 16px;
+  border-radius: 99px;
+  font-size: var(--text-16);
+  font-weight: 600;
+}
+/* Below this width the six chips no longer fit one row comfortably —
+   swap to the dropdown. Matches this file's existing 640px mobile cutoff. */
+@media (max-width: 640px) {
+  .about-filter-chips { display: none; }
+  .about-filter-select-wrap { display: block; }
+}
+
+/* ── Contact Section ── */
+.about-contact-card {
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border-light);
+}
+.about-contact-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+/* Grid items default to `min-width: auto`, so a `1fr` track cannot shrink below
+   its content's min-content width. .about-contact-info's 24px side padding put
+   its floor at 330px, which overflowed the 278px track and was clipped by
+   .about-contact-card's `overflow: hidden` — cutting off the heading and body
+   copy at 320px. Applies to both columns so the form side can't regress the
+   same way. */
+.about-contact-grid > * {
+  min-width: 0;
+}
+@media (min-width: 900px) {
+  .about-contact-grid { grid-template-columns: 1fr 1fr; }
+}
+.about-contact-info {
+  padding: 40px 24px;
+  background: var(--text);
+  color: #fff;
+}
+@media (min-width: 900px) {
+  .about-contact-info { padding: 64px 48px; }
+}
+.about-contact-form {
+  padding: 40px 24px;
+  background: var(--surface);
+}
+@media (min-width: 900px) {
+  .about-contact-form { padding: 64px 48px; }
+}
+
+.about-contact-block {
+  display: flex;
+  gap: 16px;
+  transition: transform 0.2s ease;
+}
+/* Same `min-width: auto` trap as the grid above: the text column's min-content
+   is set by the unbreakable email address, so it refused to shrink and pushed
+   the address past the clipped card edge at 320px. Needs the break-word rule on
+   .about-contact-link too — neither alone is sufficient. */
+.about-contact-block > * {
+  min-width: 0;
+}
+.about-contact-block:hover { transform: translateX(4px); }
+.about-contact-icon-box {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: rgba(255,255,255,0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.2s;
+}
+.about-contact-block:hover .about-contact-icon-box {
+  background: rgba(255,255,255,0.18);
+}
+.about-contact-link {
+  color: rgba(255,255,255,0.7);
+  text-decoration: none;
+  transition: color 0.2s;
+  /* Email addresses have no natural break points; without this the address
+     overflows its column at narrow widths even once min-width is released. */
+  overflow-wrap: break-word;
+}
+.about-contact-link:hover { color: #fff; text-decoration: underline; }
+
+/* ── Premium Input ── */
+.about-premium-input {
+  width: 100%;
+  padding: 14px 18px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text);
+  font-size: var(--text-16);
+  font-family: inherit;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.3s ease, box-shadow 0.3s ease, background-color 0.3s ease;
+  outline: none;
+}
+.about-premium-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 4px rgba(var(--primary-rgb), 0.12);
+  transform: translateY(-2px);
+  background: var(--surface);
+}
+.about-premium-input::placeholder { color: var(--text-tertiary); }
+
+/* ── Submit Button ── */
+.about-submit-btn {
+  width: 100%;
+  padding: 16px;
+  border-radius: 16px;
+  /* 16.8px/700 is still below the large-text threshold, so this needs 4.5:1. */
+  background: var(--primary-fill);
+  color: #fff;
+  border: none;
+  font-weight: 700;
+  font-size: var(--text-16);
+  font-family: inherit;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.3s ease;
+  will-change: transform;
+  margin-top: 8px;
+}
+.about-submit-btn:hover:not(:disabled) {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 25px rgba(var(--primary-rgb), 0.35);
+}
+.about-submit-btn:active:not(:disabled) { transform: translateY(-1px); }
+.about-submit-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* ── Wave Divider ── */
+.about-wave-divider {
+  width: 100%;
+  overflow: hidden;
+  line-height: 0;
+  margin-top: -1px;
+}
+.about-wave-divider svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* ── Footer ── */
+.about-footer {
+  background: #0a0a0a;
+  color: #fff;
+  padding: 72px 5% 32px;
+  position: relative;
+}
+.about-footer-grid {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1.5fr 1fr 1fr;
+  gap: 48px;
+  margin-bottom: 64px;
+}
+@media (max-width: 900px) {
+  .about-footer-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+@media (max-width: 480px) {
+  .about-footer-grid {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
+}
+.about-footer-heading {
+  font-size: var(--text-13);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: rgba(255,255,255,0.5);
+  margin-bottom: 20px;
+}
+.about-footer-link {
+  display: block;
+  color: rgba(255,255,255,0.6);
+  text-decoration: none;
+  font-size: var(--text-16);
+  font-weight: 500;
+  padding: 4px 0;
+  transition: color 0.2s, transform 0.2s;
+}
+.about-footer-link:hover {
+  color: #fff;
+  transform: translateX(4px);
+}
+.about-social-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  transition: transform 0.25s ease, background-color 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+  border: 1px solid rgba(255,255,255,0.08);
+  text-decoration: none;
+}
+.about-social-btn:hover {
+  background: var(--primary);
+  border-color: var(--primary);
+  transform: translateY(-3px);
+  box-shadow: 0 6px 20px rgba(var(--primary-rgb), 0.3);
+}
+
+.about-footer-bottom {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding-top: 32px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  color: rgba(255,255,255,0.55);
+  font-size: var(--text-14);
+}
+
+.about-footer-legal-links {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 16px;
+}
+
+.about-footer-legal-links .about-footer-link {
+  color: inherit;
+  font-size: inherit;
+}
+
+/* ── Back to Top ── */
+.about-back-to-top {
+  position: fixed;
+  bottom: 32px;
+  right: 32px;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--primary-fill);
+  color: #fff;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 8px 30px rgba(var(--primary-rgb), 0.3);
+  z-index: 999;
+  transition: transform 0.3s, box-shadow 0.3s;
+}
+.about-back-to-top:hover {
+  transform: scale(1.1);
+  box-shadow: 0 12px 40px rgba(var(--primary-rgb), 0.4);
+}
+.about-back-to-top:active { transform: scale(0.95); }
+
+/* ── Subtle floating shapes for decoration ── */
+.about-gradient-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(60px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── Dark Mode Overrides ── */
+[data-theme="dark"] .about-contact-info {
+  background: var(--accent-darker);
+}
+
+[data-theme="dark"] .about-login-btn.scrolled {
+  background: var(--primary-fill);
+  color: #fff;
+}
+
+[data-theme="dark"] .about-bento-card:hover,
+[data-theme="dark"] .about-feedback-card:hover {
+  border-color: rgba(var(--primary-rgb), 0.3);
+}
+
+/* --- ABOUT PAGE STATIC LAYOUT CLASSES --- */
+.about-map-box {
+  position: relative; width: 100%; max-width: 100%; min-width: 0;
+  height: clamp(360px, 52vw, 460px);
+  border-radius: 24px; overflow: hidden; margin-top: 24px;
+  box-shadow: var(--shadow-lg); border: 1px solid rgba(255,255,255,0.08);
+  background: #dbeafe; isolation: isolate;
+}
+.about-coverage-tag {
+  position: absolute; top: 14px; left: 14px; display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px; background: rgba(4, 20, 37, 0.74); border: 1px solid rgba(255,255,255,0.16);
+  border-radius: 9px; backdrop-filter: blur(10px); color: #fff; font-size: var(--text-12); font-weight: 700;
+  letter-spacing: 0.05em; z-index: 1000;
+}
+.about-green-dot {
+  width: 7px; height: 7px; border-radius: 50%; background: #4ade80; box-shadow: 0 0 9px #4ade80;
+}
+.about-map-hint {
+  position: absolute; left: 12px; right: 12px; bottom: 28px; padding: 5px 8px; background: rgba(4, 20, 37, 0.86);
+  border-radius: 5px; color: rgba(255,255,255,0.86); font-size: var(--text-12); letter-spacing: 0.03em; z-index: 1000;
+  line-height: 1.4; pointer-events: none;
+}
+.about-map-overview {
+  position: absolute; top: 14px; right: 14px; z-index: 1000;
+  min-height: 36px; padding: 6px 10px; border-radius: 9px;
+  border: 1px solid rgba(15,23,42,0.18); background: #fff;
+  color: #1e293b; font-size: var(--text-12); font-weight: 600; cursor: pointer;
+}
+.about-map-overview:focus-visible {
+  outline: 3px solid #0f4c81; outline-offset: 2px;
+}
+.about-map-note {
+  margin-top: 12px; font-size: var(--text-12); line-height: 1.6; color: var(--text-secondary);
+}
+.about-map-status {
+  position: absolute; top: 64px; left: 12px; right: 64px; z-index: 1000;
+  padding: 8px 10px; border-radius: 8px; background: rgba(4,20,37,0.9);
+  color: #fff; font-size: var(--text-12); line-height: 1.5; pointer-events: none;
+}
+/* ═══════════════════════════════════════════════════════════════════════
+   INLINE STYLE MIGRATION — Classes replacing style={{...}} in JSX
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Map Helpers ── */
+.about-wave-svg { fill: #0a0a0a; }
+
+/* ── Map Tooltip ── */
+.about-map-tooltip {
+  position: absolute; bottom: 92px; left: 12px; right: 12px;
+  background: rgba(5,18,38,0.85); backdrop-filter: blur(14px);
+  border: 1px solid rgba(74,222,128,0.28); border-radius: 14px;
+  padding: 10px 14px; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  display: flex; align-items: center; gap: 10px; z-index: 1000; pointer-events: none;
+}
+.about-map-tooltip-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: #22c55e; box-shadow: 0 0 8px #22c55e; flex-shrink: 0;
+}
+.about-map-tooltip-body { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.about-map-tooltip-name { font-weight: 700; font-size: var(--text-13); color: #fff; }
+.about-map-tooltip-detail { font-size: var(--text-12); color: rgba(255,255,255,0.86); margin-top: 2px; }
+
+/* ── Nav Brand ── */
+.about-nav-brand { display: flex; align-items: center; gap: 10px; }
+.about-nav-brand h1 { margin: 0; font-size: var(--text-20); font-weight: 700; }
+
+/* ── Hero Section ── */
+.about-hero-bg {
+  position: absolute; inset: 0;
+  background-size: cover; background-position: center; z-index: 1;
+}
+.about-hero-overlay {
+  position: absolute; inset: 0;
+  background: linear-gradient(to bottom, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0.75) 100%);
+  z-index: 2;
+}
+.about-gradient-orb-primary {
+  width: 400px; height: 400px; top: 10%; left: -5%;
+  background: rgba(var(--primary-rgb), 0.08); z-index: 3;
+}
+.about-gradient-orb-accent {
+  width: 300px; height: 300px; bottom: 15%; right: -3%;
+  background: rgba(var(--accent-rgb), 0.06); z-index: 3;
+}
+.about-hero-heading {
+  font-size: clamp(3rem, 6vw, 5rem) !important; font-weight: 700 !important; color: #fff;
+  line-height: 1.1; margin-bottom: 24px; letter-spacing: -1px;
+}
+.about-hero-subtext {
+  font-size: clamp(1.2rem, 2.5vw, 1.5rem) !important; color: rgba(255,255,255,0.9);
+  line-height: 1.6; max-width: 800px; margin: 0 auto 40px;
+}
+.about-hero-cta-row { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+
+/* ── Story Section ── */
+.about-story-heading {
+  font-size: clamp(2rem, 4vw, 3rem); font-weight: 700; margin-bottom: 24px; letter-spacing: -1px;
+}
+.about-story-body {
+  font-size: var(--text-18); color: var(--text-secondary); line-height: 1.8;
+  margin-bottom: 8px; white-space: pre-wrap;
+}
+.about-dot-top { top: -20px; right: -10px; }
+.about-dot-bottom { bottom: 0; left: -15px; }
+.about-story-img-wrap { position: relative; }
+.about-story-img-glow {
+  position: absolute; inset: 0;
+  background: linear-gradient(45deg, rgba(var(--primary-rgb),0.1), rgba(var(--accent-rgb),0.1));
+  border-radius: 50%; filter: blur(40px); transform: scale(0.8);
+}
+
+/* ── Section Headers (shared) ── */
+.about-section-header { text-align: center; margin-bottom: 48px; }
+.about-section-header-sm { text-align: center; margin-bottom: 36px; }
+
+/* ── Features Grid ── */
+.about-features-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px;
+}
+.about-feature-title {
+  font-size: var(--text-20); font-weight: 700; margin-bottom: 12px; color: var(--text);
+}
+.about-feature-desc { color: var(--text-secondary); line-height: 1.6; font-size: var(--text-16); }
+
+/* ── Empty States (shared pattern) ── */
+.about-empty-state {
+  text-align: center; padding: 48px 24px; background: var(--surface);
+  border-radius: 24px; border: 1px solid var(--border-light);
+}
+.about-empty-state-lg { padding: 48px; }
+.about-empty-icon { color: var(--text-tertiary); margin-bottom: 16px; }
+.about-empty-text { font-size: var(--text-18); font-weight: 600; color: var(--text-secondary); }
+
+/* ── Coverage Section ── */
+.about-coverage-header-card { padding: 40px 24px; }
+.about-coverage-icon-box {
+  width: 56px; height: 56px; border-radius: 20px; background: var(--primary);
+  color: #fff; display: flex; align-items: center; justify-content: center; margin-bottom: 24px;
+}
+.about-coverage-heading {
+  font-size: clamp(1.75rem, 3.5vw, 2.5rem); font-weight: 700;
+  letter-spacing: -1px; margin-bottom: 16px;
+}
+.about-coverage-desc {
+  color: var(--text-secondary); font-size: var(--text-16); line-height: 1.6; margin-bottom: 16px;
+}
+.about-coverage-search-wrap { width: 100%; max-width: 100%; min-width: 0; margin-bottom: 16px; }
+.about-coverage-search-inner { position: relative; width: 100%; max-width: 100%; min-width: 0; }
+.about-coverage-search-icon {
+  position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: var(--text-tertiary);
+}
+.about-coverage-search-input {
+  display: block; width: 100%; max-width: 100%; min-width: 0;
+  padding: 14px 16px 14px 44px; border-radius: 12px;
+  border: 1px solid var(--border); background: var(--bg-secondary);
+  font-size: var(--text-16); outline: none; color: var(--text);
+}
+.about-coverage-no-result { text-align: center; padding: 32px 20px; }
+.about-coverage-no-result-icon { color: var(--text-tertiary); margin-bottom: 10px; }
+.about-coverage-no-result-title { font-weight: 700; margin-bottom: 4px; }
+.about-coverage-no-result-desc {
+  max-width: 100%;
+  color: var(--text-secondary);
+  font-size: var(--text-16);
+  overflow-wrap: anywhere;
+}
+
+.about-region-card h4 {
+  font-size: var(--text-18); font-weight: 700; display: flex; align-items: center;
+  gap: 12px; justify-content: space-between; transition: margin-bottom 0.2s;
+  margin-bottom: 0;
+}
+.about-region-card[aria-expanded="true"] h4 { margin-bottom: 16px; }
+.about-region-label-wrap { display: flex; align-items: center; gap: 12px; }
+.about-region-pin-icon { color: var(--text-tertiary); transition: color 0.2s; }
+.about-region-card.selected .about-region-pin-icon { color: var(--primary); }
+.about-region-chevron {
+  color: var(--text-tertiary); transition: transform 0.2s;
+  transform: rotate(0deg);
+}
+.about-region-card[aria-expanded="true"] .about-region-chevron { transform: rotate(180deg); }
+.about-region-munis { display: flex; flex-wrap: wrap; gap: 8px; padding-bottom: 4px; }
+
+/* ── Gallery / Highlights ── */
+.about-highlights-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 24px;
+}
+.about-highlight-title-inner { display: flex; align-items: center; gap: 8px; }
+.about-highlight-pkg-icon { color: var(--primary-text); flex-shrink: 0; }
+
+/* ── Customer Feedback / Reviews — horizontal scroller ── */
+.about-reviews-scroller {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.about-reviews-scroll {
+  display: flex;
+  gap: 14px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: 4px;
+  -webkit-overflow-scrolling: touch;
+  padding: 4px 4px 12px;
+  margin: -4px -4px -12px;
+  /* A sliver of the next card stays visible at the row's own edge — real
+     peeking, not a hint graphic — without letting the row itself overflow
+     the page: the padding lives inside the scroll container, so the
+     container's own box never exceeds 100% width. */
+  scroll-behavior: smooth;
+}
+.about-reviews-scroll:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 12px;
+}
+.about-reviews-scroll::-webkit-scrollbar { display: none; }
+.about-reviews-scroll { scrollbar-width: none; }
+
+.about-feedback-card {
+  scroll-snap-align: start;
+  flex: 0 0 82%;
+  max-width: 360px;
+}
+@media (min-width: 480px) {
+  .about-feedback-card { flex-basis: 340px; }
+}
+
+.about-reviews-nav {
+  display: none; /* desktop-only; mobile relies on native swipe (§ below) */
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--border-light);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: background-color 0.2s ease, transform 0.2s ease, opacity 0.2s ease;
+}
+.about-reviews-nav:hover:not(:disabled) { background: var(--bg-secondary); transform: scale(1.05); }
+.about-reviews-nav:disabled { opacity: 0.35; cursor: default; }
+@media (min-width: 641px) {
+  .about-reviews-nav { display: flex; }
+}
+
+.about-review-stars { display: flex; gap: 4px; margin-bottom: 12px; }
+.about-review-text {
+  font-size: var(--text-16); line-height: 1.6; color: var(--text); margin-bottom: 16px;
+  flex-grow: 1;
+}
+.about-review-readmore {
+  background: none; border: none; padding: 0; cursor: pointer;
+  color: var(--primary-text); font-weight: 700; font-size: var(--text-14);
+  text-decoration: underline; text-underline-offset: 2px;
+}
+.about-reviewer-row { display: flex; align-items: center; gap: 12px; }
+.about-reviewer-avatar {
+  width: 38px; height: 38px; border-radius: 50%; flex-shrink: 0;
+  background: linear-gradient(135deg, rgba(var(--primary-rgb), 0.15), rgba(var(--primary-rgb), 0.05));
+  color: var(--primary-text); display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: var(--text-16);
+}
+.about-reviewer-name {
+  font-weight: 700; font-size: var(--text-16); display: flex; align-items: center;
+  gap: 6px; color: var(--text);
+}
+.about-reviewer-location {
+  font-size: var(--text-12); color: var(--text-tertiary); margin-top: 2px;
+}
+/* Distinct from the delivery-location line above it: lighter weight, no
+   location icon/prefix, so the two are never mistaken for each other. */
+.about-review-date {
+  font-size: var(--text-12); color: var(--text-tertiary); margin-top: 2px; font-weight: 500;
+}
+
+/* ── Full review modal ── */
+.about-review-modal-overlay {
+  position: fixed; inset: 0; z-index: 9999;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+  animation: aboutFadeIn 0.2s ease-out;
+}
+.about-review-modal {
+  position: relative;
+  background: var(--surface);
+  border-radius: 20px;
+  padding: 28px;
+  max-width: 480px;
+  width: 100%;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: var(--shadow-lg);
+}
+.about-review-modal-close {
+  position: absolute; top: 16px; right: 16px;
+  width: 36px; height: 36px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg-secondary); border: none; color: var(--text);
+  cursor: pointer;
+}
+.about-review-modal-text {
+  font-size: var(--text-16); line-height: 1.7; color: var(--text);
+  margin: 12px 0 20px; white-space: pre-wrap;
+}
+
+/* ── Contact Section ── */
+.about-contact-heading {
+  font-size: clamp(1.75rem, 3.5vw, 2.5rem); font-weight: 700;
+  letter-spacing: -1px; margin-bottom: 16px;
+}
+.about-contact-subtext {
+  color: rgba(255,255,255,0.7); font-size: var(--text-16); line-height: 1.6; margin-bottom: 32px;
+}
+.about-contact-blocks { display: flex; flex-direction: column; gap: 24px; }
+.about-contact-block-title { font-weight: 700; font-size: var(--text-16); margin-bottom: 4px; }
+.about-contact-block-body {
+  color: rgba(255,255,255,0.7); font-size: var(--text-16); line-height: 1.5;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.about-contact-block-body-lg { gap: 8px; }
+.about-contact-form-title {
+  font-size: clamp(1.35rem, 3vw, 1.75rem); font-weight: 700;
+  margin-bottom: 24px; color: var(--text);
+}
+.about-contact-form-body { display: flex; flex-direction: column; gap: 20px; }
+.about-form-label {
+  display: block; font-weight: 700; font-size: var(--text-14);
+  margin-bottom: 8px; color: var(--text-secondary);
+}
+.about-form-textarea { min-height: 120px; resize: vertical; }
+.about-contact-consent {
+  font-size: var(--text-13); line-height: 1.5; color: var(--text-secondary);
+  cursor: pointer; align-items: flex-start !important;
+}
+.about-contact-consent input[type="checkbox"] { flex-shrink: 0; margin-top: 2px; accent-color: var(--primary); }
+
+/* ── Footer ── */
+.about-footer-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+.about-footer-brand h3 { margin: 0; font-size: var(--text-20); font-weight: 700; letter-spacing: -0.3px; }
+.about-footer-desc {
+  color: rgba(255,255,255,0.55); line-height: 1.7; font-size: var(--text-16); margin-bottom: 24px;
+}
+.about-footer-hubs { display: flex; flex-direction: column; gap: 4px; margin: 0 0 20px; }
+.about-footer-hub { margin: 0; color: rgba(255,255,255,0.55); font-size: var(--text-13); line-height: 1.6; text-decoration: none; transition: color 0.2s; }
+.about-footer-hub:hover { color: #fff; text-decoration: underline; }
+.about-footer-hub strong { color: rgba(255,255,255,0.85); font-weight: 700; }
+.about-footer-social { display: flex; gap: 12px; }
+.about-footer-links { display: flex; flex-direction: column; gap: 10px; }
+.about-footer-status { display: flex; align-items: center; gap: 6px; }
+.about-footer-status-dot { color: var(--primary-text); }
+.about-footer-status-checking .about-footer-status-dot { color: var(--warning-text); }
+.about-footer-status-offline .about-footer-status-dot { color: var(--error-text); }
+
+/* ── Trip Schedules Section ── */
+.about-trip-section-subtitle {
+  max-width: 560px; margin: 12px auto 0; color: var(--text-secondary);
+  font-size: var(--text-16); line-height: 1.6;
+}
+.about-trip-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px;
+}
+.about-trip-card {
+  width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer;
+  display: flex; flex-direction: column; gap: 16px; appearance: none;
+}
+.about-trip-card:focus-visible {
+  outline: 3px solid rgba(var(--primary-rgb), 0.35); outline-offset: 3px;
+}
+.about-trip-card-top { display: flex; align-items: flex-start; gap: 16px; }
+.about-trip-date-badge {
+  flex-shrink: 0; width: 56px; height: 56px; border-radius: 16px;
+  background: linear-gradient(135deg, rgba(var(--primary-rgb), 0.12), rgba(var(--primary-rgb), 0.04));
+  color: var(--primary); display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.about-trip-date-badge span { font-size: var(--text-12); font-weight: 700; letter-spacing: 0.5px; }
+.about-trip-date-badge strong { font-size: var(--text-20); line-height: 1.1; }
+.about-trip-card-route-title {
+  font-size: var(--text-18); font-weight: 700; color: var(--text);
+  display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+}
+.about-trip-card-meta {
+  display: flex; align-items: center; gap: 6px; margin-top: 4px;
+  color: var(--text-tertiary); font-size: var(--text-13);
+}
+.about-trip-card-details { display: flex; flex-direction: column; gap: 6px; }
+.about-trip-card-detail-row {
+  display: flex; align-items: center; gap: 8px; color: var(--text-secondary); font-size: var(--text-14);
+}
+.about-trip-card-badges { display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; }
+.about-trip-card-badge { padding: 4px 10px; border-radius: 100px; }
+.about-trip-section-actions {
+  display: flex; justify-content: center; flex-wrap: wrap; gap: 16px; margin-top: 32px;
+}
+
+/* ── FAQ Accordion ── */
+.about-faq-wrap { max-width: 720px; margin: 0 auto; }
+.about-faq-list { display: flex; flex-direction: column; gap: 14px; }
+.about-faq-item {
+  background: var(--surface); border: 1px solid var(--border-light);
+  border-radius: 20px; overflow: hidden; transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+.about-faq-item.open { border-color: rgba(var(--primary-rgb), 0.25); box-shadow: 0 8px 30px rgba(var(--primary-rgb), 0.08); }
+.about-faq-question-heading { margin: 0; }
+.about-faq-question {
+  width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 20px 24px; background: none; border: none; cursor: pointer;
+  font: inherit; text-align: left; color: var(--text);
+}
+.about-faq-question:focus-visible {
+  outline: 3px solid rgba(var(--primary-rgb), 0.35); outline-offset: -3px;
+}
+.about-faq-question-text { font-size: var(--text-16); font-weight: 700; }
+.about-faq-chevron { flex-shrink: 0; color: var(--text-tertiary); transition: transform 0.2s ease; }
+.about-faq-item.open .about-faq-chevron { transform: rotate(180deg); color: var(--primary); }
+.about-faq-answer-wrap { overflow: hidden; }
+.about-faq-answer { margin: 0; padding: 0 24px 20px; color: var(--text-secondary); line-height: 1.6; font-size: var(--text-16); }
+.about-footer-status-unavailable .about-footer-status-dot { color: var(--error-text); }

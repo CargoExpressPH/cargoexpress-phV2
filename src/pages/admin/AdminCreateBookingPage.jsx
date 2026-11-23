@@ -1,0 +1,950 @@
+import { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { createOrder } from '../../lib/database';
+import { useAuth } from '../../contexts/AuthContext';
+import { ROUTES, PH_LOCATIONS, VALID_PROVINCES, detectPickupLocation, validateRouteProvinces } from '../../constants/phLocations';
+import { normalizeName, toTitleCase, toAddressCase } from '../../utils/string';
+import { validatePhone } from '../../utils/phone';
+// Pre-existing bug fixed incidentally: buildRules() below already called
+// validateName/validateFacebookName/validateAddressLine without importing
+// any of the three — every submit attempt threw a ReferenceError before this.
+import { validateName, validateFacebookName, validateAddressLine } from '../../utils/validation';
+import CustomSelect from '../../components/ui/CustomSelect';
+import BarangaySelect from '../../components/ui/BarangaySelect';
+import {
+  ArrowLeft, Loader, Truck, User, MapPin, Package,
+  CreditCard, FileText, Plus, Copy, Check, Lock, ArrowRight, AlertTriangle
+} from 'lucide-react';
+import { useToast } from '../../hooks/useToast';
+import usePageTitle from '../../hooks/usePageTitle';
+import { logOrder } from '../../lib/activityLog';
+import useFieldErrors from '../../hooks/useFieldErrors';
+import FieldError, { invalidClass, fieldAttrs } from '../../components/ui/FieldError';
+import ResultIcon from '../../components/ui/ResultIcon';
+import { describeBookingSaveError } from '../../utils/bookingSaveError';
+import { formatPersonName } from '../../lib/orderParties';
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Clipboard fallback for browsers without navigator.clipboard (e.g. HTTP). */
+function fallbackCopy(text) {
+  const el = document.createElement('textarea');
+  el.value = text;
+  el.setAttribute('readonly', '');
+  el.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;padding:0;border:none;outline:none;box-shadow:none;background:transparent;opacity:0';
+  document.body.appendChild(el);
+  el.focus();
+  el.select();
+  el.setSelectionRange(0, text.length);
+  try { document.execCommand('copy'); } catch { /* silent */ }
+  document.body.removeChild(el);
+}
+
+// ── Initial form state ───────────────────────────────────────────────────────
+
+const INITIAL_FORM = {
+  // Route
+  origin: '',
+  destination: '',
+  // Sender
+  sender_first_name: '',
+  sender_last_name: '',
+  sender_phone: '',
+  sender_facebook: '',
+  sender_province: '',
+  sender_city: '',
+  sender_barangay: '',
+  sender_street: '',
+  sender_lot_block: '',
+  sender_landmark: '',
+  // Receiver
+  receiver_first_name: '',
+  receiver_last_name: '',
+  receiver_phone: '',
+  receiver_facebook: '',
+  receiver_province: '',
+  receiver_city: '',
+  receiver_barangay: '',
+  receiver_street: '',
+  receiver_lot_block: '',
+  receiver_landmark: '',
+  // Package
+  package_description: '',
+  notes: '',
+  // Payment
+  payment_preference: 'unspecified',
+};
+
+// ── Province helpers (route-aware, matching customer booking flow) ────────────
+
+const getSenderProvinces = (origin) => {
+  if (!origin) return VALID_PROVINCES;
+  if (origin === 'Bohol') return ['Bohol'];
+  return ['Metro Manila', 'Cavite', 'Batangas', 'Laguna', 'Bulacan'];
+};
+
+const getReceiverProvinces = (destination) => {
+  if (!destination) return VALID_PROVINCES;
+  if (destination === 'Bohol') return ['Bohol'];
+  return ['Metro Manila', 'Cavite', 'Batangas', 'Laguna', 'Bulacan'];
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+const AdminCreateBookingPage = () => {
+  usePageTitle('Create Booking');
+  const navigate = useNavigate();
+  const toast = useToast();
+  const { user } = useAuth();
+  const [form, setForm] = useState(INITIAL_FORM);
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(null);
+  // Set when saving the booking itself failed; shown above the submit button
+  // as { reason, detail } — detail keeps the server's wording for the admin.
+  const [submitError, setSubmitError] = useState(null);
+  const submitErrorRef = useRef(null);
+  // The notice appears where the button was; on a phone it can land partly
+  // below the fold, so bring all of it into view.
+  useEffect(() => {
+    if (submitError) submitErrorRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [submitError]);
+  const [copied, setCopied] = useState(false);
+  const { errors: fieldErrors, validate, clearError } = useFieldErrors();
+  const submittingRef = useRef(false);
+
+  /** Shorthand for updating a single field + clearing its error. */
+  const u = (k, v) => {
+    setForm(p => ({ ...p, [k]: v }));
+    clearError(k);
+  };
+
+  /** Auto-capitalizes fields as they are typed. */
+  const handleTextChange = (key) => (e) => u(key, toTitleCase(e.target.value));
+  /** Street/Lot-Block/Landmark: capitalizes each word's first letter only —
+   *  never lowercases the rest, so deliberate acronyms ("STI School") survive. */
+  const handleAddressChange = (key) => (e) => u(key, toAddressCase(e.target.value));
+
+  // ── Derived data ───────────────────────────────────────────────────────────
+
+  const senderProvinces = getSenderProvinces(form.origin);
+  const receiverProvinces = getReceiverProvinces(form.destination);
+  const senderCities = form.sender_province ? PH_LOCATIONS[form.sender_province] || [] : [];
+  const receiverCities = form.receiver_province ? PH_LOCATIONS[form.receiver_province] || [] : [];
+
+  // ── Route selection ────────────────────────────────────────────────────────
+
+  const handleRouteSelect = (route) => {
+    const prevOrigin = form.origin;
+    const prevDestination = form.destination;
+    u('origin', route.origin);
+    u('destination', route.destination);
+    clearError('route');
+
+    // Clear province/city if they no longer match the new route
+    if (prevOrigin !== route.origin) {
+      const senderSide = detectPickupLocation(form.sender_province);
+      const expectedSender = route.origin === 'Bohol' ? 'bohol' : 'manila';
+      if (form.sender_province && senderSide !== expectedSender) {
+        u('sender_province', ''); u('sender_city', ''); u('sender_barangay', '');
+      }
+    }
+    if (prevDestination !== route.destination) {
+      const receiverSide = detectPickupLocation(form.receiver_province);
+      const expectedReceiver = route.destination === 'Bohol' ? 'bohol' : 'manila';
+      if (form.receiver_province && receiverSide !== expectedReceiver) {
+        u('receiver_province', ''); u('receiver_city', ''); u('receiver_barangay', '');
+      }
+    }
+  };
+
+  // ── Province change handlers (reset dependent fields) ──────────────────────
+
+  const handleSenderProvinceChange = (value) => {
+    u('sender_province', value);
+    u('sender_city', '');
+    u('sender_barangay', '');
+  };
+
+  const handleReceiverProvinceChange = (value) => {
+    u('receiver_province', value);
+    u('receiver_city', '');
+    u('receiver_barangay', '');
+  };
+
+  const handleSenderCityChange = (value) => {
+    u('sender_city', value);
+    u('sender_barangay', '');
+  };
+
+  const handleReceiverCityChange = (value) => {
+    u('receiver_city', value);
+    u('receiver_barangay', '');
+  };
+
+  // ── Validation ─────────────────────────────────────────────────────────────
+
+  const buildRules = () => ({
+    route: (!form.origin || !form.destination)
+      ? 'Please select a route.'
+      : null,
+    // Sender
+    sender_first_name: validateName(form.sender_first_name),
+    sender_last_name: validateName(form.sender_last_name),
+    sender_phone: validatePhone(form.sender_phone),
+    sender_facebook: validateFacebookName(form.sender_facebook),
+    sender_province: !form.sender_province
+      ? 'Province is required.'
+      : null,
+    sender_city: !form.sender_city
+      ? 'City is required.'
+      : null,
+    sender_barangay: !form.sender_barangay.trim()
+      ? 'Barangay is required.'
+      : null,
+    sender_street: validateAddressLine(form.sender_street),
+    sender_lot_block: validateAddressLine(form.sender_lot_block),
+    sender_landmark: validateAddressLine(form.sender_landmark),
+    // Receiver
+    receiver_first_name: validateName(form.receiver_first_name),
+    receiver_last_name: validateName(form.receiver_last_name),
+    receiver_phone: validatePhone(form.receiver_phone),
+    receiver_facebook: validateFacebookName(form.receiver_facebook),
+    receiver_province: !form.receiver_province
+      ? 'Province is required.'
+      : null,
+    receiver_city: !form.receiver_city
+      ? 'City is required.'
+      : null,
+    receiver_barangay: !form.receiver_barangay.trim()
+      ? 'Barangay is required.'
+      : null,
+    receiver_street: validateAddressLine(form.receiver_street),
+    receiver_lot_block: validateAddressLine(form.receiver_lot_block),
+    receiver_landmark: validateAddressLine(form.receiver_landmark),
+    // Package
+    package_description: !form.package_description.trim()
+      ? 'Package description is required.'
+      : null,
+  });
+
+  // ── Submit ─────────────────────────────────────────────────────────────────
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!validate(buildRules())) return;
+
+    // Route-province cross-validation (same logic as customer flow)
+    const routeValidation = validateRouteProvinces(
+      form.sender_province,
+      form.receiver_province,
+      { origin: form.origin, destination: form.destination },
+    );
+    if (!routeValidation.valid) {
+      toast.error(routeValidation.error);
+      return;
+    }
+
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+
+    setLoading(true);
+    setSubmitError(null);
+    try {
+
+      const payload = {
+        user_id: user.id,
+        origin: form.origin,
+        destination: form.destination,
+        // Sender
+        sender_first_name: normalizeName(form.sender_first_name),
+        sender_last_name: normalizeName(form.sender_last_name),
+        sender_phone: form.sender_phone.trim(),
+        sender_facebook: normalizeName(form.sender_facebook),
+        sender_province: form.sender_province,
+        sender_city: form.sender_city,
+        sender_barangay: form.sender_barangay,
+        sender_street: form.sender_street,
+        sender_lot_block: form.sender_lot_block,
+        sender_landmark: form.sender_landmark,
+        // Receiver
+        receiver_first_name: normalizeName(form.receiver_first_name),
+        receiver_last_name: normalizeName(form.receiver_last_name),
+        receiver_phone: form.receiver_phone.trim(),
+        receiver_facebook: normalizeName(form.receiver_facebook),
+        receiver_province: form.receiver_province,
+        receiver_city: form.receiver_city,
+        receiver_barangay: form.receiver_barangay,
+        receiver_street: form.receiver_street,
+        receiver_lot_block: form.receiver_lot_block,
+        receiver_landmark: form.receiver_landmark,
+        // Package
+        package_description: form.package_description.trim(),
+        notes: form.notes.trim() || null,
+        // Payment
+        payment_preference: form.payment_preference,
+        payer_type: 'sender',
+      };
+
+      const result = await createOrder(payload);
+
+      const senderFullName = formatPersonName(payload.sender_first_name, payload.sender_last_name);
+      const receiverFullName = formatPersonName(payload.receiver_first_name, payload.receiver_last_name);
+
+      logOrder('Admin Booking Created', result.id, result.tracking_number, {
+        newValue: {
+          sender_first_name: payload.sender_first_name, sender_last_name: payload.sender_last_name,
+          receiver_first_name: payload.receiver_first_name, receiver_last_name: payload.receiver_last_name,
+          origin: payload.origin,
+          destination: payload.destination,
+        },
+        details: `Admin created booking on behalf of customer: ${senderFullName} → ${receiverFullName}`,
+      });
+
+      setSuccess({
+        tracking_number: result.tracking_number,
+        id: result.id,
+        sender_name: senderFullName,
+        receiver_name: receiverFullName,
+        origin: payload.origin,
+        destination: payload.destination,
+        status: result.status || 'Pending',
+      });
+      // No success toast: the confirmation screen below replaces the form.
+      // Not clearing `loading` here: `success` now takes over rendering via
+      // the early-return below, and this page never reads `loading` again —
+      // clearing it would risk a frame of the un-loading form before that
+      // switch. submittingRef is reset regardless since a fresh submit is
+      // never possible from the success view anyway.
+    } catch (err) {
+      // Shown in the notice above the button rather than as a toast, which
+      // repeated it with the raw text only.
+      const reason = describeBookingSaveError(err);
+      const raw = String(err?.message || '').trim();
+      setSubmitError({ reason, detail: raw && raw !== reason ? raw : null });
+      setLoading(false);
+    } finally {
+      submittingRef.current = false;
+    }
+  };
+
+  // ── Clipboard ──────────────────────────────────────────────────────────────
+
+  const handleCopy = async () => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(success.tracking_number);
+      } else {
+        fallbackCopy(success.tracking_number);
+      }
+      setCopied(true);
+      toast.success('Tracking number copied to clipboard!');
+      setTimeout(() => setCopied(false), 2500);
+    } catch {
+      fallbackCopy(success.tracking_number);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    }
+  };
+
+  // ── Reset ──────────────────────────────────────────────────────────────────
+
+  const handleReset = () => {
+    // handleSubmit deliberately leaves `loading` true on success (see the
+    // comment there) so the success screen replaces the form without a flash
+    // of the un-loading form first. "Create Another Booking" re-mounts that
+    // same form, so `loading` has to be cleared explicitly or the submitting
+    // overlay covers it immediately.
+    setLoading(false);
+    setForm(INITIAL_FORM);
+    setSuccess(null);
+    setSubmitError(null);
+    setCopied(false);
+  };
+
+  // ── Success Screen ─────────────────────────────────────────────────────────
+
+  if (success) {
+    return (
+      <div className="page-transition admin-booking-success">
+        {/* Same receipt as the customer's booking confirmation (booking-success.css). */}
+        <div className="booking-success-intro" role="status" aria-live="polite">
+          <ResultIcon tone="success" className="booking-success-mark" />
+          <h1 className="booking-success-heading">Booking created</h1>
+          <p className="booking-success-subtitle">
+            Send the tracking number to the customer so they can follow the shipment.
+          </p>
+        </div>
+
+        <section className="booking-success-card" aria-label="Booking details">
+          <div className="booking-success-card-header">
+            <span>Booking details</span>
+            <span className={`booking-success-status-pill ${success.status === 'Assigned' ? 'is-assigned' : 'is-pending'}`}>
+              {success.status}
+            </span>
+          </div>
+
+          <div className="booking-success-tracking">
+            <div className="booking-success-tracking-text">
+              <span className="booking-success-label">Tracking number</span>
+              <strong className="booking-success-tracking-number">{success.tracking_number}</strong>
+            </div>
+            <button
+              type="button"
+              className={`booking-success-copy-btn${copied ? ' is-copied' : ''}`}
+              onClick={handleCopy}
+              aria-label={copied ? 'Tracking number copied' : 'Copy tracking number'}
+            >
+              {copied ? <Check size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}
+              <span>{copied ? 'Copied' : 'Copy'}</span>
+            </button>
+          </div>
+
+          <div className="booking-success-route">
+            <span className="booking-success-label">Route</span>
+            <div className="booking-success-route-path">
+              <span>{success.origin}</span>
+              <ArrowRight size={18} aria-hidden="true" />
+              <span>{success.destination}</span>
+            </div>
+          </div>
+
+          <dl className="booking-success-details">
+            <div><dt>Sender</dt><dd>{success.sender_name}</dd></div>
+            <div><dt>Receiver</dt><dd>{success.receiver_name}</dd></div>
+          </dl>
+        </section>
+
+        <div className="booking-success-actions">
+          <button type="button" className="btn booking-success-btn-primary" onClick={handleReset}>
+            Create Another Booking
+          </button>
+          <button
+            type="button"
+            className="btn booking-success-btn-outline"
+            onClick={() => navigate(`/admin/orders/${success.id}`)}
+          >
+            View Booking
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Form ───────────────────────────────────────────────────────────────────
+
+  return (
+    <div className="page-transition">
+      <button type="button" onClick={() => navigate(-1)} className="btn btn-ghost mb-16">
+        <ArrowLeft size={18} aria-hidden="true" /> Back
+      </button>
+
+      <div className="admin-page-header">
+        <div>
+          <h1 className="admin-page-title">
+            <Plus size={24} color="var(--primary)" aria-hidden="true" />Create Booking
+          </h1>
+          <p className="admin-page-subtitle">
+            Create a booking on behalf of a customer (e.g. via Facebook Messenger).
+          </p>
+        </div>
+      </div>
+
+      <form onSubmit={handleSubmit} noValidate>
+
+        {/* ── Route ─────────────────────────────────────────── */}
+        <div className="card stagger-item mb-16" style={{ animationDelay: '0ms' }}>
+          <div className="card-body">
+            <h3 className="fw-700 mb-16 flex items-center gap-8">
+              <Truck size={18} color="var(--primary)" aria-hidden="true" /> Route
+            </h3>
+            <div
+              className={`admin-route-options ${fieldErrors.route ? 'field-group-invalid' : ''}`}
+              role="group"
+              aria-label="Route"
+              aria-invalid={fieldErrors.route ? 'true' : undefined}
+              aria-describedby={fieldErrors.route ? 'route-error' : undefined}
+              tabIndex={fieldErrors.route ? -1 : undefined}
+            >
+              {ROUTES.map(r => (
+                <button
+                  type="button"
+                  key={r.label}
+                  onClick={() => handleRouteSelect(r)}
+                  aria-pressed={form.origin === r.origin}
+                  className="card-interactive admin-route-option flex-1 p-20 cursor-pointer text-center"
+                  style={{
+                    borderRadius: 'var(--radius-md)',
+                    border: form.origin === r.origin ? '2px solid var(--primary)' : '1.5px solid var(--border)',
+                    background: form.origin === r.origin ? 'var(--primary-bg)' : 'var(--surface)',
+                  }}
+                >
+                  <Truck size={22} color={form.origin === r.origin ? 'var(--primary)' : 'var(--text-tertiary)'} className="mx-auto mb-8" />
+                  <div className="fw-700" style={{ fontSize: 'var(--text-16)' }}>{r.label}</div>
+                </button>
+              ))}
+            </div>
+            <FieldError name="route" errors={fieldErrors} id="route-error" />
+          </div>
+        </div>
+
+        {/* ── Sender Details ─────────────────────────────────── */}
+        {!form.origin ? (
+          <div className="card text-center p-32 mb-16 stagger-item" style={{ animationDelay: '60ms', background: 'var(--surface)', borderStyle: 'dashed' }}>
+            <Lock size={32} color="var(--text-tertiary)" className="mx-auto mb-16" />
+            <h3 className="fw-700 text-lg mb-8">Select a Route to Continue</h3>
+            <p className="text-secondary text-sm max-w-sm mx-auto">Please select the origin and destination above before filling out the booking details. This ensures the correct barangays and addresses are recorded.</p>
+          </div>
+        ) : (
+          <>
+            <div className="card stagger-item mb-16" style={{ animationDelay: '60ms' }}>
+          <div className="card-body">
+            <h3 className="fw-700 mb-16 flex items-center gap-8">
+              <User size={18} color="var(--primary)" aria-hidden="true" /> Sender Details
+            </h3>
+            <div className="grid grid-2 gap-16">
+              {/* First / Last Name */}
+              <div className="form-group">
+                <label className="form-label" htmlFor="ab-sender-first-name">First Name</label>
+                <input
+                  id="ab-sender-first-name"
+                  type="text"
+                  className={`form-input ${invalidClass('sender_first_name', fieldErrors)}`}
+                  value={form.sender_first_name}
+                  onChange={handleTextChange('sender_first_name')}
+                  placeholder="e.g. Juan"
+                  autoCapitalize="words"
+                  required
+                  {...fieldAttrs('sender_first_name', fieldErrors)}
+                />
+                <FieldError name="sender_first_name" errors={fieldErrors} />
+              </div>
+              <div className="form-group">
+                <label className="form-label" htmlFor="ab-sender-last-name">Last Name</label>
+                <input
+                  id="ab-sender-last-name"
+                  type="text"
+                  className={`form-input ${invalidClass('sender_last_name', fieldErrors)}`}
+                  value={form.sender_last_name}
+                  onChange={handleTextChange('sender_last_name')}
+                  placeholder="e.g. Dela Cruz"
+                  autoCapitalize="words"
+                  required
+                  {...fieldAttrs('sender_last_name', fieldErrors)}
+                />
+                <FieldError name="sender_last_name" errors={fieldErrors} />
+              </div>
+
+              {/* Phone */}
+              <div className="form-group">
+                <label className="form-label" htmlFor="ab-sender-phone">Mobile Number</label>
+                <input
+                  id="ab-sender-phone"
+                  type="tel"
+                  className={`form-input ${invalidClass('sender_phone', fieldErrors)}`}
+                  value={form.sender_phone}
+                  onChange={e => u('sender_phone', e.target.value.replace(/\D/g, '').slice(0, 11))}
+                  placeholder="09XXXXXXXXX"
+                  inputMode="numeric"
+                  maxLength={11}
+                  required
+                  {...fieldAttrs('sender_phone', fieldErrors)}
+                />
+                <FieldError name="sender_phone" errors={fieldErrors} />
+              </div>
+
+              {/* Facebook */}
+              <div className="form-group">
+                <label className="form-label" htmlFor="ab-sender-facebook">Facebook Name</label>
+                <input
+                  id="ab-sender-facebook"
+                  type="text"
+                  className={`form-input ${invalidClass('sender_facebook', fieldErrors)}`}
+                  value={form.sender_facebook}
+                  onChange={handleTextChange('sender_facebook')}
+                  placeholder="Name on Facebook"
+                  autoCapitalize="words"
+                  required
+                  {...fieldAttrs('sender_facebook', fieldErrors)}
+                />
+                <FieldError name="sender_facebook" errors={fieldErrors} />
+              </div>
+
+              {/* Province */}
+              <div className="form-group">
+                <label className="form-label" htmlFor="ab-sender-province">Province</label>
+                <CustomSelect
+                  searchable
+                  id="ab-sender-province"
+                  className={`form-select ${invalidClass('sender_province', fieldErrors)}`}
+                  value={form.sender_province}
+                  onChange={e => handleSenderProvinceChange(e.target.value)}
+                  {...fieldAttrs('sender_province', fieldErrors)}
+                >
+                  <option value="">Select Province</option>
+                  {senderProvinces.map(p => <option key={p} value={p}>{p}</option>)}
+                </CustomSelect>
+                <FieldError name="sender_province" errors={fieldErrors} />
+              </div>
+
+              {/* City */}
+              <div className="form-group">
+                <label className="form-label" htmlFor="ab-sender-city">City / Municipality</label>
+                <CustomSelect
+                  searchable
+                  id="ab-sender-city"
+                  className={`form-select ${invalidClass('sender_city', fieldErrors)}`}
+                  value={form.sender_city}
+                  onChange={e => handleSenderCityChange(e.target.value)}
+                  disabled={!form.sender_province}
+                  {...fieldAttrs('sender_city', fieldErrors)}
+                >
+                  <option value="">Select City</option>
+                  {senderCities.map(c => <option key={c} value={c}>{c}</option>)}
+                </CustomSelect>
+                <FieldError name="sender_city" errors={fieldErrors} />
+              </div>
+
+              {/* Barangay */}
+              <div className="form-group">
+                <label className="form-label" htmlFor="ab-sender-barangay">Barangay</label>
+                <BarangaySelect
+                  id="ab-sender-barangay"
+                  className={invalidClass('sender_barangay', fieldErrors)}
+                  province={form.sender_province}
+                  city={form.sender_city}
+                  value={form.sender_barangay}
+                  onChange={e => u('sender_barangay', e.target.value)}
+                  {...fieldAttrs('sender_barangay', fieldErrors)}
+                />
+                <FieldError name="sender_barangay" errors={fieldErrors} />
+              </div>
+
+              {/* Street */}
+              <div className="form-group">
+                <label className="form-label" htmlFor="ab-sender-street">Street and Subdivision (put NA if not applicable)</label>
+                <input
+                  id="ab-sender-street"
+                  type="text"
+                  className={`form-input ${invalidClass('sender_street', fieldErrors)}`}
+                  value={form.sender_street}
+                  onChange={handleAddressChange('sender_street')}
+                  placeholder="Street and Subdivision (put NA if not applicable)"
+                  autoCapitalize="words"
+                  required
+                  {...fieldAttrs('sender_street', fieldErrors)}
+                />
+                <FieldError name="sender_street" errors={fieldErrors} />
+              </div>
+
+              {/* Lot / Block / Purok */}
+              <div className="form-group">
+                <label className="form-label" htmlFor="ab-sender-lot-block">Lot / Block / Purok</label>
+                <input
+                  id="ab-sender-lot-block"
+                  type="text"
+                  className={`form-input ${invalidClass('sender_lot_block', fieldErrors)}`}
+                  value={form.sender_lot_block}
+                  onChange={handleAddressChange('sender_lot_block')}
+                  autoCapitalize="words"
+                  required
+                  {...fieldAttrs('sender_lot_block', fieldErrors)}
+                />
+                <FieldError name="sender_lot_block" errors={fieldErrors} />
+              </div>
+
+              {/* Landmark */}
+              <div className="form-group">
+                <label className="form-label" htmlFor="ab-sender-landmark">Landmark</label>
+                <input
+                  id="ab-sender-landmark"
+                  type="text"
+                  className={`form-input ${invalidClass('sender_landmark', fieldErrors)}`}
+                  value={form.sender_landmark}
+                  onChange={handleAddressChange('sender_landmark')}
+                  placeholder="Near what building/place?"
+                  autoCapitalize="words"
+                  required
+                  {...fieldAttrs('sender_landmark', fieldErrors)}
+                />
+                <FieldError name="sender_landmark" errors={fieldErrors} />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Receiver Details ───────────────────────────────── */}
+        <div className="card stagger-item mb-16" style={{ animationDelay: '120ms' }}>
+          <div className="card-body">
+            <h3 className="fw-700 mb-16 flex items-center gap-8">
+              <MapPin size={18} color="var(--primary)" aria-hidden="true" /> Receiver Details
+            </h3>
+            <div className="grid grid-2 gap-16">
+              {/* First / Last Name */}
+              <div className="form-group">
+                <label className="form-label" htmlFor="ab-receiver-first-name">First Name</label>
+                <input
+                  id="ab-receiver-first-name"
+                  type="text"
+                  className={`form-input ${invalidClass('receiver_first_name', fieldErrors)}`}
+                  value={form.receiver_first_name}
+                  onChange={handleTextChange('receiver_first_name')}
+                  placeholder="e.g. Maria"
+                  autoCapitalize="words"
+                  required
+                  {...fieldAttrs('receiver_first_name', fieldErrors)}
+                />
+                <FieldError name="receiver_first_name" errors={fieldErrors} />
+              </div>
+              <div className="form-group">
+                <label className="form-label" htmlFor="ab-receiver-last-name">Last Name</label>
+                <input
+                  id="ab-receiver-last-name"
+                  type="text"
+                  className={`form-input ${invalidClass('receiver_last_name', fieldErrors)}`}
+                  value={form.receiver_last_name}
+                  onChange={handleTextChange('receiver_last_name')}
+                  placeholder="e.g. Santos"
+                  autoCapitalize="words"
+                  required
+                  {...fieldAttrs('receiver_last_name', fieldErrors)}
+                />
+                <FieldError name="receiver_last_name" errors={fieldErrors} />
+              </div>
+
+              {/* Phone */}
+              <div className="form-group">
+                <label className="form-label" htmlFor="ab-receiver-phone">Mobile Number</label>
+                <input
+                  id="ab-receiver-phone"
+                  type="tel"
+                  className={`form-input ${invalidClass('receiver_phone', fieldErrors)}`}
+                  value={form.receiver_phone}
+                  onChange={e => u('receiver_phone', e.target.value.replace(/\D/g, '').slice(0, 11))}
+                  placeholder="09XXXXXXXXX"
+                  inputMode="numeric"
+                  maxLength={11}
+                  required
+                  {...fieldAttrs('receiver_phone', fieldErrors)}
+                />
+                <FieldError name="receiver_phone" errors={fieldErrors} />
+              </div>
+
+              {/* Facebook */}
+              <div className="form-group">
+                <label className="form-label" htmlFor="ab-receiver-facebook">Facebook Name</label>
+                <input
+                  id="ab-receiver-facebook"
+                  type="text"
+                  className={`form-input ${invalidClass('receiver_facebook', fieldErrors)}`}
+                  value={form.receiver_facebook}
+                  onChange={handleTextChange('receiver_facebook')}
+                  placeholder="Name on Facebook"
+                  autoCapitalize="words"
+                  required
+                  {...fieldAttrs('receiver_facebook', fieldErrors)}
+                />
+                <FieldError name="receiver_facebook" errors={fieldErrors} />
+              </div>
+
+              {/* Province */}
+              <div className="form-group">
+                <label className="form-label" htmlFor="ab-receiver-province">Province</label>
+                <CustomSelect
+                  searchable
+                  id="ab-receiver-province"
+                  className={`form-select ${invalidClass('receiver_province', fieldErrors)}`}
+                  value={form.receiver_province}
+                  onChange={e => handleReceiverProvinceChange(e.target.value)}
+                  {...fieldAttrs('receiver_province', fieldErrors)}
+                >
+                  <option value="">Select Province</option>
+                  {receiverProvinces.map(p => <option key={p} value={p}>{p}</option>)}
+                </CustomSelect>
+                <FieldError name="receiver_province" errors={fieldErrors} />
+              </div>
+
+              {/* City */}
+              <div className="form-group">
+                <label className="form-label" htmlFor="ab-receiver-city">City / Municipality</label>
+                <CustomSelect
+                  searchable
+                  id="ab-receiver-city"
+                  className={`form-select ${invalidClass('receiver_city', fieldErrors)}`}
+                  value={form.receiver_city}
+                  onChange={e => handleReceiverCityChange(e.target.value)}
+                  disabled={!form.receiver_province}
+                  {...fieldAttrs('receiver_city', fieldErrors)}
+                >
+                  <option value="">Select City</option>
+                  {receiverCities.map(c => <option key={c} value={c}>{c}</option>)}
+                </CustomSelect>
+                <FieldError name="receiver_city" errors={fieldErrors} />
+              </div>
+
+              {/* Barangay */}
+              <div className="form-group">
+                <label className="form-label" htmlFor="ab-receiver-barangay">Barangay</label>
+                <BarangaySelect
+                  id="ab-receiver-barangay"
+                  className={invalidClass('receiver_barangay', fieldErrors)}
+                  province={form.receiver_province}
+                  city={form.receiver_city}
+                  value={form.receiver_barangay}
+                  onChange={e => u('receiver_barangay', e.target.value)}
+                  {...fieldAttrs('receiver_barangay', fieldErrors)}
+                />
+                <FieldError name="receiver_barangay" errors={fieldErrors} />
+              </div>
+
+              {/* Street */}
+              <div className="form-group">
+                <label className="form-label" htmlFor="ab-receiver-street">Street and Subdivision (put NA if not applicable)</label>
+                <input
+                  id="ab-receiver-street"
+                  type="text"
+                  className={`form-input ${invalidClass('receiver_street', fieldErrors)}`}
+                  value={form.receiver_street}
+                  onChange={handleAddressChange('receiver_street')}
+                  placeholder="Street and Subdivision (put NA if not applicable)"
+                  autoCapitalize="words"
+                  required
+                  {...fieldAttrs('receiver_street', fieldErrors)}
+                />
+                <FieldError name="receiver_street" errors={fieldErrors} />
+              </div>
+
+              {/* Lot / Block / Purok */}
+              <div className="form-group">
+                <label className="form-label" htmlFor="ab-receiver-lot-block">Lot / Block / Purok</label>
+                <input
+                  id="ab-receiver-lot-block"
+                  type="text"
+                  className={`form-input ${invalidClass('receiver_lot_block', fieldErrors)}`}
+                  value={form.receiver_lot_block}
+                  onChange={handleAddressChange('receiver_lot_block')}
+                  autoCapitalize="words"
+                  required
+                  {...fieldAttrs('receiver_lot_block', fieldErrors)}
+                />
+                <FieldError name="receiver_lot_block" errors={fieldErrors} />
+              </div>
+
+              {/* Landmark */}
+              <div className="form-group">
+                <label className="form-label" htmlFor="ab-receiver-landmark">Landmark</label>
+                <input
+                  id="ab-receiver-landmark"
+                  type="text"
+                  className={`form-input ${invalidClass('receiver_landmark', fieldErrors)}`}
+                  value={form.receiver_landmark}
+                  onChange={handleAddressChange('receiver_landmark')}
+                  placeholder="Near what building/place?"
+                  autoCapitalize="words"
+                  required
+                  {...fieldAttrs('receiver_landmark', fieldErrors)}
+                />
+                <FieldError name="receiver_landmark" errors={fieldErrors} />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Package Details ────────────────────────────────── */}
+        <div className="card stagger-item mb-16" style={{ animationDelay: '180ms' }}>
+          <div className="card-body">
+            <h3 className="fw-700 mb-16 flex items-center gap-8">
+              <Package size={18} color="var(--primary)" aria-hidden="true" /> Package Details
+            </h3>
+            <div className="form-group">
+              <label className="form-label" htmlFor="ab-description">Description</label>
+              <textarea
+                id="ab-description"
+                className={`form-textarea ${invalidClass('package_description', fieldErrors)}`}
+                value={form.package_description}
+                onChange={e => u('package_description', e.target.value)}
+                placeholder="e.g. 2 boxes of dried fish, 1 bag of pasalubong"
+                rows={3}
+                required
+                {...fieldAttrs('package_description', fieldErrors)}
+              />
+              <FieldError name="package_description" errors={fieldErrors} />
+            </div>
+            <div className="form-group mt-16">
+              <label className="form-label" htmlFor="ab-notes">
+                Notes <span className="fw-400 text-tertiary" style={{ fontSize: 'var(--text-13)' }}>(Optional)</span>
+              </label>
+              <textarea
+                id="ab-notes"
+                className="form-textarea"
+                value={form.notes}
+                onChange={e => u('notes', e.target.value)}
+                placeholder='e.g. "Customer estimates ~5kg", "Handle with care — fragile items"'
+                rows={2}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* ── Payment Preference ─────────────────────────────── */}
+        <div className="card stagger-item mb-24" style={{ animationDelay: '240ms' }}>
+          <div className="card-body">
+            <h3 className="fw-700 mb-16 flex items-center gap-8">
+              <CreditCard size={18} color="var(--primary)" aria-hidden="true" /> Payment Preference
+            </h3>
+            <div className="form-group">
+              <label className="form-label" htmlFor="ab-payment">Payment Method</label>
+              <select
+                id="ab-payment"
+                className="form-input"
+                value={form.payment_preference}
+                onChange={e => u('payment_preference', e.target.value)}
+              >
+                <option value="unspecified">Not specified yet</option>
+                <option value="cash">Cash</option>
+                <option value="gcash">GCash</option>
+              </select>
+              <p className="text-xs text-tertiary mt-4">
+                The customer's preferred payment method. This can be updated later when the package is weighed and priced.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Submit ─────────────────────────────────────────── */}
+        {submitError && (
+          <div className="booking-submit-failure" role="alert" ref={submitErrorRef}>
+            <AlertTriangle size={18} className="booking-submit-failure-icon" aria-hidden="true" />
+            <div className="booking-submit-failure-body">
+              <p className="booking-submit-failure-title">We couldn’t confirm the booking</p>
+              <p>{submitError.reason}</p>
+              <p>
+                Everything you entered is still here. Try again, or if the connection
+                dropped while saving, check Bookings first, as it may already be saved.
+              </p>
+              {submitError.detail && (
+                <p className="booking-submit-failure-detail">Details: {submitError.detail}</p>
+              )}
+            </div>
+          </div>
+        )}
+        <div className="admin-form-actions">
+          <button
+            type="submit"
+            className="btn btn-primary btn-lg admin-form-submit"
+            disabled={loading}
+            style={{ minWidth: 200 }}
+          >
+            {loading
+              ? <><Loader size={18} className="animate-spin" /> Creating Booking...</>
+              : <><Package size={18} /> Create Booking</>
+            }
+          </button>
+        </div>
+          </>
+        )}
+      </form>
+    </div>
+  );
+};
+
+export default AdminCreateBookingPage;

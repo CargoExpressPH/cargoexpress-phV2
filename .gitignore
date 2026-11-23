@@ -1,0 +1,26 @@
+node_modules/
+dist/
+.env
+codex-session-*.md
+.env.*
+.DS_Store
+.vscode/
+.firebase/
+.vercel
+!.env.example
+.git-temp/
+.vercel-old/
+.history/
+.antigravitycli/
+.claude/
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
+
+
+# Local audit/scan scratch — may contain tokens; never commit
+.scan/

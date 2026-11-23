@@ -1,0 +1,2897 @@
+/* -----------------------------------------------------------------------
+   App-like scrollbar hiding — customer shell only (no visible bar, keep scroll)
+   Mobile: window scrollbar hidden too so phone feels like native app.
+   Desktop: window scrollbar stays (a11y/keyboard) — only the shell is hidden.
+   Public pages (.trk-page etc.) keep their own hide in responsive.css.
+   ----------------------------------------------------------------------- */
+.customer-layout-v2,
+.customer-layout-v2 .customer-main,
+.customer-layout-v2 .customer-main *,
+.customer-bottom-nav,
+.customer-bottom-nav * {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.customer-layout-v2::-webkit-scrollbar,
+.customer-layout-v2 .customer-main::-webkit-scrollbar,
+.customer-layout-v2 .customer-main *::-webkit-scrollbar,
+.customer-bottom-nav::-webkit-scrollbar,
+.customer-bottom-nav *::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+  background: transparent;
+}
+
+.customer-layout-v2,
+.customer-main {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Phone only: hide window scrollbar when customer app is open — app-like */
+@media (max-width: 899.98px) {
+  html:has(.customer-layout-v2),
+  body:has(.customer-layout-v2) {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  html:has(.customer-layout-v2)::-webkit-scrollbar,
+  body:has(.customer-layout-v2)::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+    background: transparent;
+  }
+}
+
+.customer-layout-v2 .hero-search-input {
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: white;
+}
+
+.customer-layout-v2 .hero-search-input::placeholder {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.customer-layout-v2,
+.customer-bottom-nav {
+  /* Scoped overrides on purpose — these are NOT duplicates of the
+     tokens.css aliases. Several alias mappings resolve to different values
+     (e.g. dark --customer-green-dark -> var(--primary-lighter) = #064E3B,
+     unreadable as text on the dark surface). The refresh layer wins over
+     layer(tokens), and removing this block would silently darken headings,
+     active nav items and muted text in dark mode. */
+  --customer-green: #16A34A;
+  --customer-green-dark: #0B5F3D;
+  --customer-green-soft: #F0FDF4;
+  --customer-green-glow: rgba(18, 138, 90, 0.18);
+  --customer-ink: #0B1220;
+  --customer-muted: #5F6B7A;
+  --customer-panel: rgba(255, 255, 255, 0.92);
+  --customer-panel-solid: #FFFFFF;
+  --customer-line: rgba(15, 23, 42, 0.08);
+  --customer-shadow: 0 18px 44px rgba(15, 23, 42, 0.08);
+  --customer-shadow-soft: 0 10px 26px rgba(15, 23, 42, 0.06);
+  --customer-safe-bottom: env(safe-area-inset-bottom, 0px);
+  color: var(--customer-ink);
+}
+
+[data-theme="dark"] .customer-layout-v2,
+[data-theme="dark"] .customer-bottom-nav {
+  --customer-green: #34D399;
+  --customer-green-dark: #A7F3D0;
+  --customer-green-soft: rgba(16, 185, 129, 0.12);
+  --customer-green-glow: rgba(52, 211, 153, 0.22);
+  --customer-ink: #F8FAFC;
+  --customer-muted: #B7C2D0;
+  --customer-panel: rgba(30, 41, 59, 0.9);
+  --customer-panel-solid: #1E293B;
+  --customer-line: rgba(148, 163, 184, 0.15);
+  --customer-shadow: 0 18px 44px rgba(0, 0, 0, 0.32);
+  --customer-shadow-soft: 0 10px 26px rgba(0, 0, 0, 0.24);
+  background:
+    linear-gradient(180deg, #0F172A 0%, #16213A 48%, #1E293B 100%);
+}
+
+.customer-layout-v2 .card,
+.customer-layout-v2 .modal,
+.customer-layout-v2 .confirm-modal {
+  border-color: var(--customer-line);
+  border-radius: 22px;
+  background: var(--customer-panel);
+  box-shadow: var(--customer-shadow-soft);
+}
+
+.customer-layout-v2 .card:hover {
+  border-color: color-mix(in srgb, var(--customer-green) 20%, var(--customer-line));
+  box-shadow: var(--customer-shadow);
+}
+
+.customer-layout-v2 .card-body {
+  padding: 20px;
+}
+
+.customer-layout-v2 .btn,
+.customer-layout-v2 .form-input,
+.customer-layout-v2 .form-select,
+.customer-layout-v2 .form-textarea,
+.customer-layout-v2 .search-box input {
+  min-height: 48px;
+  border-radius: 16px;
+}
+
+.customer-layout-v2 .form-input,
+.customer-layout-v2 .form-select,
+.customer-layout-v2 .form-textarea,
+.customer-layout-v2 .search-box input {
+  border-color: var(--customer-line);
+  background: color-mix(in srgb, var(--customer-panel-solid) 92%, var(--bg) 8%);
+  box-shadow: inset 0 1px 0 var(--control-inset-highlight);
+}
+
+.customer-layout-v2 .form-input:focus,
+.customer-layout-v2 .form-select:focus,
+.customer-layout-v2 .form-textarea:focus,
+.customer-layout-v2 .search-box:focus-within input {
+  border-color: var(--customer-green);
+  box-shadow: 0 0 0 4px var(--customer-green-glow);
+}
+
+.customer-layout-v2 .btn-primary {
+  background: linear-gradient(135deg, var(--primary-fill) 0%, var(--primary-text-strong) 100%);
+  color: #FFFFFF;
+  box-shadow: 0 14px 28px rgba(18, 138, 90, 0.24);
+}
+
+.customer-layout-v2 .btn-primary:hover {
+  background: linear-gradient(135deg, var(--primary-text-strong), var(--primary-dark));
+  box-shadow: 0 18px 34px rgba(18, 138, 90, 0.28);
+}
+
+.customer-layout-v2 .btn-ghost:hover {
+  background: var(--customer-green-soft);
+  color: var(--customer-green-dark);
+}
+
+.customer-layout-v2 .text-primary,
+/* This covers every .text-accent in the customer app — including tracking-number
+   and order links in tables, which are body-size text. --customer-green aliases
+   --primary at 3.30:1, so it fails AA there; --primary-text is the AA variant. */
+.customer-layout-v2 .text-accent {
+  color: var(--primary-text);
+}
+
+[data-theme="dark"] .customer-navbar {
+  background: rgba(8, 19, 33, 0.82);
+}
+
+.customer-navbar::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--customer-line), transparent);
+}
+
+.customer-navbar-inner {
+  padding-inline: 24px;
+}
+
+.customer-navbar-logo > svg {
+  box-sizing: content-box;
+  width: 21px;
+  height: 21px;
+  padding: 10px;
+  border-radius: 13px;
+  background: linear-gradient(145deg, #0B1220, #173725);
+  color: #FFFFFF;
+  stroke: var(--customer-green);
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.16);
+}
+
+/* (0,3,0) — outranks the .customer-layout-v2 .text-accent rule above, so this
+   needs the AA token too or the wordmark stays at 3.08:1 on the navbar. */
+.customer-layout-v2 .customer-navbar-brand .text-accent,
+.customer-layout-v2 .customer-navbar-brand .text-primary {
+  color: var(--primary-text);
+}
+
+.customer-nav-link.active::after {
+  display: none;
+}
+
+.customer-avatar-btn {
+  border-radius: 999px;
+}
+
+.customer-avatar {
+  box-shadow: none;
+}
+
+.customer-main {
+  width: min(100%, 980px);
+}
+
+.customer-bottom-nav-inner {
+  min-height: 74px;
+}
+
+[data-theme="dark"] .customer-bottom-nav-inner {
+  border-color: rgba(148, 163, 184, 0.12);
+  background: rgba(19, 32, 51, 0.86);
+}
+
+/* 4.89:1 on the light nav — passes; kept so light mode is unchanged */
+.customer-bottom-tab {
+  min-height: 58px;
+}
+
+/* #657184 measured only 3.39:1 against the dark nav (rgba(19,32,51,.86) over
+   --bg). The token resolves to #9AA9BA here, giving 6.99:1. */
+[data-theme="dark"] .customer-bottom-tab {
+  color: var(--text-tertiary);
+}
+
+/* The active tab label is 11.2px — body-size text, so --customer-green
+   (aliases --primary, 3.08:1 on the translucent white nav bar) fails AA.
+   The icon keeps its own colour rule below; only the label needs this. */
+
+.customer-page-heading,
+.customer-mobile-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.customer-page-heading h1,
+.customer-page-heading h2,
+.customer-mobile-heading h1,
+.customer-mobile-heading h2 {
+  color: var(--customer-ink);
+  font-size: clamp(1.85rem, 5vw, 2.55rem);
+  font-weight: 700;
+  line-height: 1.02;
+  letter-spacing: 0;
+}
+
+.customer-home-hero h1,
+.customer-home-hero h2 {
+  color: var(--text-on-dark);
+  font-size: clamp(2.1rem, 8vw, 3rem);
+  font-weight: 700;
+  line-height: 1.02;
+  letter-spacing: 0;
+}
+
+.customer-page-heading p,
+.customer-mobile-heading p {
+  color: var(--customer-muted);
+  line-height: 1.45;
+}
+
+.customer-section-title {
+  color: var(--customer-ink);
+  font-size: var(--text-13);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.customer-inline-action {
+  color: var(--customer-green-dark);
+  font-weight: 700;
+}
+
+.customer-home-page {
+  display: grid;
+  gap: 18px;
+}
+
+.customer-home-hero {
+  min-height: 236px;
+  margin-bottom: 0;
+  padding: 28px;
+  border-radius: 30px;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  box-shadow: 0 24px 58px rgba(9, 68, 47, 0.22);
+  transition: background-image 0.8s ease, box-shadow 0.8s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.customer-home-hero.hero-morning {
+  background-image:
+    linear-gradient(100deg, rgba(6, 78, 59, 0.72) 0%, rgba(6, 78, 59, 0.46) 45%, rgba(0, 0, 0, 0.20) 100%),
+    url('/images/hero/hero-morning.webp');
+  box-shadow: 0 24px 58px rgba(6, 78, 59, 0.28);
+}
+
+.customer-home-hero.hero-afternoon {
+  background-image:
+    linear-gradient(100deg, rgba(9, 68, 47, 0.70) 0%, rgba(15, 110, 75, 0.44) 45%, rgba(0, 0, 0, 0.18) 100%),
+    url('/images/hero/hero-afternoon.webp');
+  box-shadow: 0 24px 58px rgba(9, 68, 47, 0.25);
+}
+
+.customer-home-hero.hero-evening {
+  background-image:
+    linear-gradient(100deg, rgba(20, 30, 25, 0.74) 0%, rgba(30, 41, 59, 0.42) 45%, rgba(0, 0, 0, 0.18) 100%),
+    url('/images/hero/hero-evening.webp');
+  box-shadow: 0 24px 58px rgba(15, 61, 46, 0.30);
+}
+
+.customer-home-hero.hero-night {
+  background-image:
+    linear-gradient(100deg, rgba(5, 15, 25, 0.76) 0%, rgba(15, 23, 42, 0.45) 45%, rgba(0, 0, 0, 0.20) 100%),
+    url('/images/hero/hero-night.webp');
+  box-shadow: 0 24px 58px rgba(2, 44, 34, 0.35);
+}
+
+.customer-home-hero::before,
+.customer-home-hero::after {
+  display: none;
+}
+
+.customer-home-hero p {
+  position: relative;
+  z-index: 1;
+  color: var(--text-on-dark);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.65);
+}
+
+.customer-home-hero h1,
+.customer-home-hero h2 {
+  position: relative;
+  z-index: 1;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.60);
+  margin-bottom: 8px;
+}
+
+.customer-home-hero > .text-sm:first-child {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 30px;
+  align-items: center;
+  margin-bottom: 10px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.82);
+  font-weight: 700;
+  gap: 6px;
+}
+
+.customer-home-hero .customer-track-form {
+  margin-top: 24px;
+}
+
+.customer-home-hero .customer-track-form .search-box input {
+  min-height: 52px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1.5px solid rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: #FFFFFF;
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.08);
+  transition: all 0.2s ease;
+}
+
+.customer-home-hero .customer-track-form .search-box input:focus {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.45);
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.18);
+}
+
+.customer-home-hero .customer-track-form .search-box input::placeholder {
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.customer-home-hero .customer-track-form .search-icon {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.customer-home-hero .customer-track-form .btn {
+  min-width: 92px;
+  min-height: 52px;
+  border-radius: 18px;
+  background: #FFFFFF;
+  color: #044E32;
+  font-weight: 700;
+  box-shadow: 0 14px 26px rgba(0, 0, 0, 0.13);
+}
+
+.customer-home-hero .customer-track-form .btn:disabled {
+  background: rgba(255, 255, 255, 0.82);
+  color: rgba(4, 78, 50, 0.65);
+  opacity: 0.8;
+  cursor: not-allowed;
+}
+
+[data-theme="dark"] .customer-home-hero .customer-track-form .btn {
+  background: #FFFFFF;
+  color: #044E32;
+  font-weight: 700;
+}
+
+[data-theme="dark"] .customer-home-hero .customer-track-form .btn:disabled {
+  background: rgba(255, 255, 255, 0.82);
+  color: rgba(4, 78, 50, 0.65);
+  opacity: 0.8;
+}
+
+.customer-home-snapshot {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: -8px;
+}
+
+.customer-snapshot-pill {
+  min-width: 0;
+  min-height: 72px;
+  padding: 12px 14px;
+  border: 1px solid var(--customer-line);
+  border-radius: 22px;
+  background: var(--customer-panel);
+  box-shadow: var(--customer-shadow-soft);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease;
+}
+
+.customer-snapshot-pill:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--customer-shadow);
+}
+
+.customer-snapshot-icon-chip {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.customer-snapshot-icon-chip.chip-purple {
+  background: rgba(139, 92, 246, 0.12);
+  color: #8b5cf6;
+}
+
+.customer-snapshot-icon-chip.chip-blue {
+  background: rgba(59, 130, 246, 0.12);
+  color: #3b82f6;
+}
+
+.customer-snapshot-icon-chip.chip-green {
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+}
+
+[data-theme="dark"] .customer-snapshot-icon-chip.chip-purple {
+  background: rgba(167, 139, 250, 0.18);
+  color: #c4b5fd;
+}
+
+[data-theme="dark"] .customer-snapshot-icon-chip.chip-blue {
+  background: rgba(96, 165, 250, 0.18);
+  color: #93c5fd;
+}
+
+[data-theme="dark"] .customer-snapshot-icon-chip.chip-green {
+  background: rgba(52, 211, 153, 0.18);
+  color: #6ee7b7;
+}
+
+.customer-snapshot-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.customer-snapshot-value {
+  color: var(--customer-ink);
+  font-size: var(--text-20);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.customer-snapshot-label {
+  margin-top: 3px;
+  color: var(--customer-muted);
+  font-size: var(--text-12);
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.customer-snapshot-label-full { display: inline; }
+.customer-snapshot-label-short { display: none; }
+
+/* Home Trip Capacity Progress Strip */
+.home-trip-capacity-strip {
+  background: var(--customer-green-soft, var(--primary-bg));
+  background: color-mix(in srgb, var(--customer-green-soft, var(--primary-bg)) 45%, var(--customer-panel-solid, var(--surface)));
+  border: 1px solid var(--customer-line, var(--border));
+  border-radius: 16px;
+  padding: 12px 14px;
+}
+
+.home-trip-capacity-lbl {
+  color: var(--customer-muted, var(--text-secondary));
+  font-weight: 700;
+  font-size: var(--text-12);
+}
+
+.home-trip-capacity-pct {
+  color: var(--customer-green-dark, var(--primary));
+  font-size: var(--text-12);
+}
+
+.home-trip-progress-track {
+  height: 8px;
+  width: 100%;
+  border-radius: 999px;
+  background: var(--customer-line, rgba(0, 0, 0, 0.08));
+  overflow: hidden;
+  position: relative;
+}
+
+[data-theme="dark"] .home-trip-progress-track {
+  background: rgba(255, 255, 255, 0.10);
+}
+
+.home-trip-progress-bar {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #10b981 0%, #059669 100%);
+  transition: width 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Soft panel trip cards (trips list + home next-available). Same family as
+   shipment cards / snapshot pills: light panel light mode, dark panel dark mode. */
+.customer-layout-v2 .customer-trip-card {
+  overflow: hidden;
+  border: 1px solid var(--customer-line, var(--border));
+  border: 1px solid color-mix(in srgb, var(--customer-green) 22%, transparent);
+  border-radius: 28px;
+  background: var(--customer-panel-solid, var(--surface));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--customer-green-soft) 82%, var(--customer-panel-solid) 18%), var(--customer-panel-solid) 62%),
+    var(--customer-panel-solid);
+  color: var(--customer-ink);
+  box-shadow: var(--customer-shadow);
+}
+
+/* Do not use `* { color: inherit }` — it breaks StatusBadge / .badge colors. */
+.customer-layout-v2 .customer-trip-card .customer-trip-cta,
+.customer-layout-v2 .home-hero-trip-card .home-trip-cta {
+  /* Was `var(--customer-green) → #22C55E`; white text on the #22C55E stop is
+     only 2.28:1. Matches the .customer-layout-v2 .btn-primary gradient above,
+     which is already AA-safe across both stops. */
+  background: linear-gradient(135deg, var(--primary-fill) 0%, var(--primary-text-strong) 100%);
+  color: #FFFFFF;
+  box-shadow: 0 14px 28px rgba(18, 138, 90, 0.22);
+}
+
+.customer-shipment-card,
+.customer-order-list-card,
+.customer-trip-list-card {
+  border-radius: 24px;
+}
+
+.customer-shipment-card .card-body,
+.customer-order-list-card .card-body,
+.customer-trip-list-card .card-body {
+  display: grid;
+  gap: 10px;
+}
+
+/* Tracking number on the left, status badge + chevron on the right. A long
+   badge ("Pending Cancellation") no longer squeezes the tracking number into
+   a character-by-character wrap: when both do not fit on one line, the badge
+   group wraps to its own line, still right-aligned, and the tracking number
+   stays whole. */
+.customer-list-card-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 12px;
+  min-width: 0;
+}
+
+.customer-list-card-top > :first-child {
+  flex: 1 1 auto;
+}
+
+.customer-list-card-top > * + * {
+  margin-left: auto;
+}
+
+/* Order cards: status first. Every card has the same shape whatever the
+   status says — the pill and chevron share the top row, which has room for
+   the longest label ("Pending Cancellation") on a 320px phone, and the
+   tracking number and booked date sit beneath at full width. Status leads
+   because it is what a customer scans a list of shipments for. */
+.customer-list-card-top.customer-list-card-top--status {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+.customer-list-card-top.customer-list-card-top--status > * + * {
+  margin-left: 0;
+}
+
+.customer-list-card-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* overflow-wrap: normal — a tracking number only breaks at its hyphens, and
+   only on screens too narrow to hold it whole. */
+.customer-list-card-title {
+  min-width: 0;
+  color: var(--customer-ink);
+  font-size: var(--text-16);
+  font-weight: 700;
+  line-height: 1.2;
+  overflow-wrap: normal;
+}
+
+.customer-list-card-route,
+.customer-list-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--customer-muted);
+  font-size: var(--text-13);
+}
+
+.customer-list-card-route span,
+.customer-list-card-meta span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.customer-list-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--customer-muted);
+  font-size: var(--text-12);
+}
+
+.customer-list-card-price {
+  color: var(--customer-green-dark);
+  font-size: var(--text-16);
+  font-weight: 700;
+}
+
+.customer-card-chevron {
+  color: var(--text-tertiary);
+  flex: 0 0 auto;
+  margin-top: 3px;
+}
+
+.customer-announcement-card {
+  border-radius: 24px;
+}
+
+.customer-orders-search.search-box {
+  margin-bottom: 14px ;
+}
+
+.customer-order-tabs,
+.responsive-filter-tabs.customer-order-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  overflow: visible;
+  border-bottom: 0;
+}
+
+.customer-order-tabs .tab {
+  min-width: 0;
+  min-height: 44px;
+  justify-content: center;
+  border: 1px solid var(--customer-line);
+  border-radius: 999px;
+  background: var(--customer-panel);
+  color: var(--customer-muted);
+  font-weight: 700;
+  white-space: normal;
+}
+
+.customer-order-tabs .tab.active {
+  border-color: color-mix(in srgb, var(--customer-green) 40%, transparent);
+  background: var(--customer-green-soft);
+  color: var(--customer-green-dark);
+}
+
+.customer-trips-page {
+  display: grid;
+  gap: 14px;
+}
+
+.customer-trip-list-card {
+  width: 100%;
+  text-align: left;
+  color: inherit;
+}
+
+.customer-trip-date-badge {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 62px;
+  border-radius: 18px;
+  /* AA pair: white on --primary-fill = 5.02:1 in BOTH themes (tokens.css).
+     The old brand gradient hit ~2.28:1 light / ~1.74:1 dark against white. */
+  background: var(--primary-fill);
+  color: #FFFFFF;
+  box-shadow: 0 12px 24px rgba(18, 138, 90, 0.2);
+}
+
+.customer-trip-date-badge span {
+  font-size: var(--text-12);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.customer-trip-date-badge strong {
+  font-size: var(--text-24);
+  font-weight: 700;
+  line-height: 0.98;
+}
+
+.booking-page {
+  display: grid;
+  gap: 16px;
+}
+
+/* Blocking overlay while the booking POST is in flight. Fixed rather than
+   absolute so it stays centred no matter where the review step is scrolled —
+   an off-screen spinner is what made the wait read as a dead page. */
+.booking-submitting-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal, 1000);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--backdrop-bg);
+  backdrop-filter: var(--backdrop-blur);
+  -webkit-backdrop-filter: var(--backdrop-blur);
+}
+
+.booking-submitting-card {
+  /* Neither --bg-primary nor --text-primary exists. Undefined with no fallback,
+     both declarations were dropped at computed-value time: the card rendered
+     transparent with inherited near-black text on the dark scrim (~3.06:1),
+     during booking submission, while telling the customer not to close the page. */
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 20px 50px rgba(2, 8, 23, 0.3);
+  padding: 28px 32px;
+  max-width: 360px;
+  width: 100%;
+  text-align: center;
+}
+
+.booking-submitting-card svg {
+  color: var(--primary);
+}
+
+.booking-page > h2 {
+  color: var(--customer-ink);
+  font-size: clamp(1.8rem, 5vw, 2.35rem);
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.booking-page > .btn-ghost:first-child,
+.customer-back-action {
+  width: fit-content;
+  min-height: 42px;
+  padding-inline: 12px;
+  border-radius: 999px;
+}
+
+.step-progress {
+  position: -webkit-sticky;
+  position: sticky;
+  top: 82px;
+  z-index: 5;
+  gap: 0;
+  margin-top: 0;
+  margin-right: -2px;
+  margin-left: -2px;
+  padding: 10px;
+  border: 1px solid var(--customer-line);
+  border-radius: 24px;
+  background: var(--customer-panel-solid, var(--surface));
+  background: color-mix(in srgb, var(--customer-panel-solid) 92%, transparent);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: var(--customer-shadow-soft);
+}
+
+/* Keep booking progress visible above the form and its floating menus while
+   leaving the site header as the topmost sticky element. */
+.booking-page .step-progress {
+  z-index: calc(var(--z-sticky) - 1);
+}
+
+/* A step keeps its full width (number + name); the connector lines give
+   way instead, so a name never spills over its line. */
+.step-progress .step {
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
+.step-progress .step-number {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 0;
+  background: var(--bg-secondary);
+  color: var(--customer-muted);
+  font-weight: 700;
+}
+
+.step-progress .step.active .step-number,
+.step-progress .step.completed .step-number {
+  /* Contains the step numeral — body-size text, so needs the AA-safe fill. */
+  background: var(--primary-fill);
+  color: #FFFFFF;
+  box-shadow: 0 8px 18px rgba(18, 138, 90, 0.22);
+}
+
+.step-progress .step-label {
+  color: var(--customer-muted);
+  font-size: var(--text-12);
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.step-progress .step.active .step-label,
+.step-progress .step.completed .step-label {
+  color: var(--customer-green-dark);
+}
+
+.step-progress .step-connector {
+  height: 2px;
+  /* Clear gap either side so the line never touches a step name. */
+  margin-inline: 10px;
+  min-width: 12px;
+  border-radius: 999px;
+}
+
+.customer-layout-v2 .customer-route-option {
+  min-height: 118px;
+  border-radius: 24px;
+  box-shadow: none;
+}
+
+.customer-layout-v2 .customer-route-option[aria-pressed="true"] {
+  background: var(--customer-green-soft);
+  border-color: var(--customer-green);
+  box-shadow: 0 12px 28px rgba(18, 138, 90, 0.12);
+}
+
+.booking-trip-select {
+  max-width: 100%;
+  text-overflow: ellipsis;
+}
+
+.booking-trip-preview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--customer-line);
+  border-radius: 18px;
+  background: var(--customer-green-soft);
+}
+
+.booking-trip-preview div {
+  min-width: 0;
+}
+
+.booking-trip-preview span,
+.booking-trip-preview strong {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.booking-trip-preview span {
+  margin-bottom: 2px;
+  color: var(--customer-muted);
+  font-size: var(--text-12);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.booking-trip-preview strong {
+  color: var(--customer-ink);
+  font-size: var(--text-12);
+  font-weight: 700;
+}
+
+.booking-cost-card {
+  border-color: color-mix(in srgb, var(--customer-green) 24%, transparent);
+}
+
+.customer-notifications-page {
+  display: grid;
+  gap: 12px;
+}
+
+.customer-notifications-page .section-header {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+}
+
+.notification-card {
+  min-height: 78px;
+  border-color: var(--customer-line);
+  box-shadow: var(--customer-shadow-soft);
+}
+
+.notification-card.unread .notification-icon-wrap {
+  border-radius: 16px;
+}
+
+/* Swipe-to-delete mobile refinements */
+
+.notification-swipe-hint {
+  font-weight: 600;
+}
+
+.notification-modal {
+  border-color: var(--customer-line);
+}
+
+.customer-order-detail-page,
+.customer-order-detail-screen {
+  display: grid;
+  gap: 14px;
+}
+
+/* Same rule as the list cards: the status badge wraps below the tracking
+   number instead of forcing the number onto three lines. */
+.customer-order-detail-header {
+  flex-wrap: wrap;
+  row-gap: 10px;
+  margin-bottom: 6px;
+  padding: 18px;
+  border: 1px solid var(--customer-line);
+  border-radius: 26px;
+  background: linear-gradient(135deg, var(--customer-green-soft), var(--customer-panel-solid));
+  box-shadow: var(--customer-shadow-soft);
+}
+
+.customer-order-detail-header h1,
+.customer-order-detail-header h2 {
+  overflow-wrap: normal;
+  color: var(--customer-ink);
+  font-size: clamp(1.25rem, 5vw, 1.8rem);
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+/* "Need to cancel?" row at the foot of the order page. A quiet bordered row
+   instead of a full-width red bar, so cancelling reads as available but
+   secondary to tracking and payment. */
+.customer-cancel-zone {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 16px;
+  margin-top: 8px;
+  padding: 16px 18px;
+  border: 1px solid var(--customer-line);
+  border-radius: 18px;
+  background: var(--customer-panel-solid);
+}
+
+.customer-cancel-zone-copy {
+  display: flex;
+  flex: 1 1 220px;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  color: var(--customer-ink);
+}
+
+.customer-cancel-zone .btn {
+  flex-shrink: 0;
+}
+
+.customer-detail-card {
+  border-radius: 24px;
+}
+
+.customer-contact-card .card-body {
+  min-height: 152px;
+}
+
+.customer-payment-summary {
+  border-color: var(--customer-line);
+}
+
+.profile-card-premium {
+  position: relative;
+}
+
+.profile-card-banner {
+  border-radius: 30px 30px 26px 26px;
+}
+
+.profile-vip-overlay {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #fff;
+  font-size: var(--text-12);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  box-shadow: var(--shadow-sm);
+  z-index: 2;
+}
+
+.profile-card-avatar {
+  border-width: 5px;
+}
+
+.profile-avatar-container {
+  position: relative;
+  width: 86px;
+  height: 86px;
+  margin-bottom: var(--space-md);
+}
+
+.profile-card-avatar-circle {
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius-full);
+  border: 4px solid var(--surface);
+  /* AA pair — the initial is real text; gradient hit ~2.28:1 light / ~1.74:1 dark */
+  background: var(--primary-fill);
+  box-shadow: 0 12px 26px rgba(18, 138, 90, 0.22);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: var(--text-32);
+  font-weight: 700;
+}
+
+.profile-avatar-edit-badge {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  border: 3.5px solid var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: var(--shadow-md);
+  transition: var(--transition-fast);
+  padding: 0;
+}
+
+.profile-avatar-edit-badge:hover {
+  transform: scale(1.1) rotate(15deg);
+  background: var(--accent-light);
+}
+
+.profile-card-body-content {
+  padding: 0 var(--space-lg) var(--space-lg);
+  margin-top: -46px;
+  display: flex;
+  flex-direction: column;
+}
+
+.profile-card-info-header {
+  text-align: left;
+  margin-bottom: var(--space-md);
+}
+
+.profile-user-name {
+  font-size: var(--text-24);
+  font-weight: 700;
+  color: var(--customer-ink);
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.profile-user-email {
+  font-size: var(--text-14);
+  color: var(--customer-muted);
+  margin: 4px 0 0 0;
+}
+
+.profile-tier-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--primary-lighter);
+  color: var(--primary-dark);
+  font-size: var(--text-12);
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  box-shadow: var(--shadow-xs);
+}
+
+[data-theme="dark"] .profile-tier-badge {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+}
+
+.profile-completion-container {
+  background: color-mix(in srgb, var(--customer-green-soft) 40%, var(--customer-panel));
+  border: 1px solid var(--customer-line);
+  border-radius: 22px;
+  padding: 16px;
+  margin-top: 4px;
+  box-shadow: var(--shadow-xs);
+}
+
+.profile-completion-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: var(--text-13);
+  color: var(--customer-ink);
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+.profile-completion-header strong {
+  color: var(--primary-text);
+  font-weight: 700;
+}
+
+.profile-completion-bar {
+  height: 8px;
+  background: var(--border-light);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  margin-bottom: 8px;
+  border: 1px solid var(--customer-line);
+}
+
+.profile-completion-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--customer-green), #10B981);
+  border-radius: var(--radius-full);
+  transition: width 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.profile-completion-action {
+  display: block;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--primary-text);
+  font-size: var(--text-12);
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+  text-align: left;
+  transition: color 0.15s;
+}
+
+.profile-completion-action:hover {
+  color: var(--customer-green-dark);
+}
+
+.profile-section-title {
+  font-size: var(--text-12);
+  font-weight: 700;
+  color: var(--customer-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 28px 0 10px 4px;
+  text-align: left;
+}
+
+.profile-menu-icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  flex-shrink: 0;
+}
+
+.profile-menu-icon-wrap.primary {
+  background: var(--primary-bg);
+  color: var(--primary-text);
+}
+
+.profile-menu-icon-wrap.accent {
+  background: rgba(45, 90, 138, 0.08);
+  color: var(--accent-light);
+}
+
+.profile-menu-icon-wrap.success {
+  background: var(--success-bg);
+  color: var(--success-text);
+}
+
+.profile-menu-icon-wrap.info {
+  background: var(--info-bg);
+  color: var(--info-text);
+}
+
+.profile-menu-icon-wrap.warning {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+
+[data-theme="dark"] .profile-menu-icon-wrap.primary { background: rgba(16, 185, 129, 0.12); color: #34d399; }
+[data-theme="dark"] .profile-menu-icon-wrap.accent { background: rgba(93, 160, 216, 0.12); color: #7bb8e8; }
+[data-theme="dark"] .profile-menu-icon-wrap.success { background: rgba(52, 211, 153, 0.12); color: #34d399; }
+[data-theme="dark"] .profile-menu-icon-wrap.info { background: rgba(96, 165, 250, 0.12); color: #60a5fa; }
+[data-theme="dark"] .profile-menu-icon-wrap.warning { background: rgba(251, 191, 36, 0.12); color: #fbbf24; }
+
+.profile-menu-card {
+  border-radius: 26px;
+  overflow: hidden;
+  box-shadow: var(--customer-shadow-soft);
+  border: 1px solid var(--customer-line);
+}
+
+.profile-menu-item {
+  min-height: 74px;
+}
+
+.profile-menu-item.no-hover {
+  cursor: default;
+}
+
+.profile-menu-item.no-hover:hover {
+  background: var(--customer-panel);
+  color: var(--customer-ink);
+}
+
+/* Unread chat badge on the Live Support Chat profile menu item */
+.profile-unread-badge {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: var(--radius-full);
+  background: var(--primary-fill);
+  color: #fff;
+  font-size: var(--text-12);
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* Switch Toggle Styling */
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--border-hover);
+  transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 34px;
+}
+
+.toggle-slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 50%;
+  box-shadow: var(--shadow-sm);
+}
+
+input:checked + .toggle-slider {
+  background-color: var(--customer-green);
+}
+
+input:checked + .toggle-slider:before {
+  transform: translateX(20px);
+}
+
+.profile-signout {
+  border-radius: 20px;
+  min-height: 52px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  margin-top: 14px;
+  box-shadow: var(--shadow-xs);
+}
+
+.customer-personal-info-page {
+  display: grid;
+  gap: 14px;
+}
+
+.personal-info-group-heading {
+  margin: 0 0 18px;
+}
+
+.personal-info-address-heading {
+  border-top: 1px solid var(--customer-line);
+  padding-top: 22px;
+  margin-top: 28px;
+}
+
+.personal-info-group-heading h2 {
+  margin: 0 0 4px;
+  color: var(--customer-ink);
+  font-size: var(--text-18);
+  font-weight: 700;
+}
+
+.personal-info-group-heading p {
+  margin: 0;
+  color: var(--customer-muted);
+  font-size: var(--text-13);
+  line-height: 1.5;
+}
+
+.customer-personal-info-page > h2 {
+  color: var(--customer-ink);
+  font-size: clamp(1.8rem, 5vw, 2.35rem);
+  font-weight: 700;
+}
+
+.form-input-icon {
+  top: 50%;
+  z-index: 1;
+  transform: translateY(-50%);
+}
+
+/* No gap: the chat is one shell now (.support-chat-shell in chat-inbox.css),
+   and the page is just the box it fills. The old `> .mb-16` page header and
+   the 2.25rem <h2> that went with it are gone — the title lives in the
+   compact sticky header inside the shell. */
+.support-chat-page {
+  gap: 0;
+}
+
+/* See tables-mobile.css: a flex item defaults to min-height:auto and refuses to
+   shrink below its content, which pushed the chat column past its height and
+   scrolled the composer under the tab bar. Re-asserted here because this
+   file loads after tables-mobile.css. */
+/* The border and the inner highlight moved to the shell, which is what draws
+   the outline of the whole chat surface now. */
+.support-chat-shell {
+  box-shadow: var(--customer-shadow-soft), inset 0 1px 0 var(--panel-inset-highlight);
+}
+
+.support-message-bubble {
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+}
+
+.support-message-bubble.user-bubble {
+  /* AA pair: white on --primary-fill = 5.02:1 in BOTH themes (tokens.css). */
+  background: var(--primary-fill);
+  color: #FFFFFF;
+}
+
+.support-message-bubble.bot-bubble,
+.support-message-bubble.admin-bubble {
+  border: 1px solid var(--customer-line);
+  background: var(--customer-panel-solid);
+  color: var(--customer-ink);
+}
+
+.customer-layout-v2 .support-chat-page .chat-send-btn {
+  border-radius: 999px;
+  background: var(--primary-fill);
+  color: #FFFFFF;
+  box-shadow: 0 12px 24px rgba(18, 138, 90, 0.24);
+}
+
+.customer-layout-v2 .support-chat-page .chat-send-btn:disabled {
+  opacity: 0.5;
+}
+
+.login-split-page .chat-send-btn {
+  background: linear-gradient(135deg, var(--primary), var(--primary-light));
+  color: #FFFFFF;
+  box-shadow: 0 2px 8px rgba(22, 163, 74, 0.3);
+}
+
+.login-split-page .chat-send-btn:disabled {
+  background: linear-gradient(135deg, var(--primary), var(--primary-light));
+  color: #FFFFFF;
+  opacity: 0.55;
+}
+
+.customer-main:has(.support-chat-page) {
+  scroll-padding-bottom: calc(94px + var(--customer-safe-bottom));
+}
+
+@media (max-width: 899.98px) {
+  .customer-navbar-inner {
+    padding-inline: 20px;
+  }
+
+  .customer-navbar-logo > svg {
+    width: 20px;
+    height: 20px;
+    padding: 9px;
+    border-radius: 12px;
+  }
+
+  .customer-main {
+    width: 100%;
+    max-width: 560px;
+  }
+
+  .customer-page-heading,
+  .customer-mobile-heading {
+    align-items: flex-start;
+  }
+
+  .customer-home-hero {
+    min-height: 226px;
+    padding: 26px 22px;
+  }
+
+  .customer-home-snapshot {
+    gap: 8px;
+  }
+
+  .customer-snapshot-pill {
+    min-height: 64px;
+    padding: 10px 8px;
+    gap: 8px;
+    border-radius: 18px;
+  }
+
+  .customer-snapshot-icon-chip {
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+  }
+
+  .customer-snapshot-icon-chip svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .customer-snapshot-value {
+    font-size: var(--text-16);
+  }
+
+  .customer-order-tabs,
+  .responsive-filter-tabs.customer-order-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .customer-order-tabs .tab:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+
+  .step-progress {
+    top: 74px;
+    overflow-x: auto;
+  }
+
+  .step-progress .step-label {
+    display: none;
+  }
+
+  .customer-contact-grid,
+  .grid.grid-2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .support-chat-page {
+    /* 186 = navbar 66 + .customer-main padding-top 16 + padding-bottom 104.
+       Must stay in step with .customer-main:has(.support-chat-page) in
+       layout-customer.css; if the two stop summing to 100dvh the page gains a
+       scroll and the composer slides under the bottom tab bar. */
+    min-height: 0;
+    height: calc(100dvh - 186px - var(--customer-safe-bottom) - var(--app-safe-top) - var(--keyboard-inset, 0px));
+    /* The column is a fixed-height viewport for the message list. Without this
+       an overflowing child still grew the page, and that scroll is what slid
+       the composer under the floating tab bar. */
+    overflow: hidden;
+  }
+
+  .booking-trip-preview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 520px) {
+  .customer-navbar-right {
+    gap: 2px;
+  }
+
+  .theme-toggle-btn,
+  .customer-nav-icon-btn {
+    width: 38px;
+    height: 38px;
+  }
+
+  .customer-home-hero .customer-track-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .customer-home-hero .customer-track-form .btn {
+    width: 100%;
+  }
+
+  .customer-snapshot-label {
+    font-size: var(--text-12);
+  }
+
+  .customer-bottom-nav {
+    padding-inline: 12px;
+  }
+
+  .customer-bottom-nav-inner {
+    max-width: 390px;
+    min-height: 70px;
+    border-radius: 26px;
+  }
+
+  .customer-bottom-tab {
+    min-width: 50px;
+    min-height: 54px;
+    font-size: var(--text-12);
+  }
+
+  .customer-bottom-tab.book-tab .book-tab-icon {
+    width: 52px;
+    height: 52px;
+  }
+}
+
+@media (max-width: 374px) {
+  .customer-main {
+    padding-inline: 14px ;
+  }
+
+  .customer-navbar-inner {
+    padding-inline: 14px;
+  }
+
+  .customer-home-snapshot {
+    grid-template-columns: 1fr;
+  }
+
+  .customer-snapshot-pill {
+    min-height: 56px;
+  }
+}
+
+/* Keep all three navbar controls visible at 320px without shrinking their tap areas. */
+@media (max-width: 344px) {
+  .customer-navbar-logo .brand-logo {
+    width: 32px;
+    height: 32px;
+  }
+
+  .customer-navbar-logo .brand-lockup {
+    gap: 6px;
+  }
+
+  .customer-navbar-logo .brand-wordmark {
+    font-size: var(--text-13);
+  }
+}
+
+/* ── Per-order payment table (customer OrderDetailPage) ─────────────────
+   Named for the Payment History page, which is where it started. That page
+   no longer uses it — its ledger is now the compact .payment-list below —
+   but the order detail screen still renders this table for the payments on
+   one order, so the rules stay. Renaming the classes would touch a working
+   screen for cosmetic reasons; the note is cheaper.
+   ---------------------------------------------------------------------- */
+.customer-payment-history-table-wrap {
+  border: 1px solid var(--customer-line);
+  border-radius: 20px;
+  background: var(--customer-panel);
+  overflow: hidden;
+  box-shadow: var(--customer-shadow-soft);
+  margin-top: 12px;
+}
+
+.customer-payment-history-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 ;
+}
+
+.customer-payment-history-table thead {
+  background: color-mix(in srgb, var(--customer-green-soft) 40%, var(--bg-secondary));
+}
+
+.customer-payment-history-table th {
+  padding: 12px 16px ;
+  font-size: var(--text-12);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--customer-green-dark);
+  border-bottom: 1px solid var(--customer-line) ;
+  text-align: left;
+}
+
+.customer-payment-history-table td {
+  padding: 12px 16px ;
+  font-size: var(--text-13);
+  color: var(--customer-ink);
+  border-bottom: 1px solid var(--customer-line) ;
+  text-align: left;
+}
+
+.customer-payment-history-table tbody tr:last-child td {
+  border-bottom: none ;
+}
+
+.customer-payment-history-table tbody tr:hover {
+  background: color-mix(in srgb, var(--customer-green-soft) 30%, transparent);
+}
+
+/* Responsive transformation for mobile devices (< 768px) */
+@media (max-width: 768px) {
+  .customer-payment-history-table-wrap {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    overflow: visible;
+    margin-top: 8px;
+  }
+
+  .customer-payment-history-table {
+    display: block;
+  }
+
+  .customer-payment-history-table thead {
+    display: none ;
+  }
+
+  .customer-payment-history-table tbody {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .customer-payment-history-table tbody tr {
+    display: flex;
+    flex-direction: column;
+    padding: 16px ;
+    background: var(--customer-panel);
+    border: 1px solid var(--customer-line);
+    border-radius: 20px;
+    box-shadow: var(--customer-shadow-soft);
+    gap: 8px;
+  }
+
+  .customer-payment-history-table tbody tr:hover {
+    background: var(--customer-panel);
+  }
+
+  /* Values can wrap to more than one line (PayMongo references are ~30
+     characters with no spaces), so top-align them against their label
+     rather than centring a two-line value against a one-line label.
+     `pay_AF5gLbFUtAGwauryXa6LfzLp` is a single unbreakable token. Without an
+     explicit break opportunity it overflowed the card and was clipped. */
+  .customer-payment-history-table td {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 0 0 6px 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--customer-line) 40%, transparent);
+    font-size: var(--text-13);
+    text-align: right;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  /* The label must keep its width; the value must be allowed to shrink. A flex
+     item defaults to min-width:auto, which is what let the reference push past
+     the card edge instead of wrapping inside it. */
+  .customer-payment-history-table td[data-label]::before {
+    flex: 0 0 auto;
+  }
+
+  .customer-payment-history-table td > * {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  /* Multi-line values stack and stay right-aligned under their label. Without
+     the wrapper these were separate flex items and rendered as two columns. */
+  .customer-payment-history-table td .cell-stack {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+  }
+
+  .customer-payment-history-table td:last-child {
+    border-bottom: none ;
+    padding-bottom: 0 ;
+  }
+
+  /* Inline mobile labels using data-label attribute */
+  .customer-payment-history-table td[data-label]::before {
+    content: attr(data-label);
+    font-size: var(--text-12);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--customer-muted);
+    text-align: left;
+    min-width: 90px;
+    flex-shrink: 0;
+  }
+}
+
+/* ── Customer Payment History — compact statement list ──────────────────
+   The payment ledger reads like a banking statement: one row per payment
+   carrying the three facts a statement is scanned for — when, how much, and
+   whether it landed. Everything else about a payment is a lookup rather than
+   a scan, so it lives behind the row in a modal.
+
+   This replaces a six-column table (Date / Order / Type / Amount / Method /
+   Status) that collapsed into a stacked label-and-value card per payment on
+   phones — six lines of chrome for one payment, with the amount, the one
+   figure the screen exists to show, arriving fourth.
+   ---------------------------------------------------------------------- */
+
+.payment-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 28px 0 10px;
+  flex-wrap: wrap;
+}
+
+.payment-list-header .profile-section-title {
+  margin: 0 0 0 4px;
+}
+
+/* CustomSelect wraps its trigger in .custom-select-root, which is width:100%
+   so it fills a form column. Here it is a flex item beside the heading, and
+   at full width it would stretch across the row and shove the title. The root
+   is not reachable by prop (the component forwards className to the trigger
+   only), so it is constrained structurally. */
+.payment-list-header .custom-select-root {
+  width: auto;
+  flex: 0 0 auto;
+  min-width: 172px;
+  max-width: 100%;
+}
+
+.payment-month-select {
+  width: 100%;
+  height: 40px;
+  font-size: var(--text-13);
+  font-weight: 700;
+}
+
+.payment-list {
+  border-radius: 20px;
+  overflow: hidden;
+  border: 1px solid var(--customer-line);
+  background: var(--customer-panel);
+}
+
+/* Grid, not flex: the date and amount tracks are fixed so the amounts stack
+   into a readable right-aligned column down the list, the way a statement
+   reads. Under flex each amount would sit wherever its own text width put it
+   and the column would zigzag.
+
+   The status track is `minmax` rather than `auto` for the same reason. With
+   `auto` the track takes each pill's own width, so a row reading "Partial"
+   or "Failed" pushed its amount ~10px left of the "Paid" rows above it and
+   the column of figures — the thing this layout exists to straighten — came
+   out ragged. The floor fits the longest label ("Refunded") and the ceiling
+   lets an unexpected one grow rather than overflow. */
+.payment-row {
+  display: grid;
+  grid-template-columns: 60px 1fr minmax(76px, auto) 16px;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 58px;
+  padding: 12px 14px;
+  background: var(--customer-panel);
+  border: none;
+  border-bottom: 1px solid var(--customer-line);
+  text-align: left;
+  cursor: pointer;
+  transition: var(--transition-fast);
+  font-family: inherit;
+}
+
+.payment-row:last-child {
+  border-bottom: none;
+}
+
+.payment-row:hover {
+  background: var(--customer-green-soft);
+}
+
+.payment-row-date {
+  font-size: var(--text-12);
+  font-weight: 700;
+  color: var(--customer-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+/* Tabular figures so the decimal points line up down the column — the whole
+   reason the amount gets its own grid track. */
+.payment-row-amount {
+  font-size: var(--text-16);
+  font-weight: 700;
+  color: var(--customer-ink);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.payment-row-pill {
+  justify-self: end;
+  white-space: nowrap;
+}
+
+.payment-row-chevron {
+  color: var(--text-tertiary);
+  justify-self: end;
+}
+
+/* Refund copy intentionally includes its meaning ("returned", "not
+   refunded", or "refund requested"). Give those longer, safer labels a
+   second line instead of squeezing them into the ordinary payment grid. */
+.payment-row.payment-row-refund {
+  grid-template-columns: 60px minmax(0, 1fr) 16px;
+  grid-template-areas:
+    "refund-date refund-amount refund-chevron"
+    "refund-date refund-status refund-chevron";
+}
+
+.payment-row-refund .payment-row-date { grid-area: refund-date; }
+.payment-row-refund .payment-row-amount {
+  grid-area: refund-amount;
+  overflow-wrap: anywhere;
+}
+.payment-row-refund .payment-row-pill {
+  grid-area: refund-status;
+  white-space: normal;
+  text-align: center;
+}
+.payment-row-refund .payment-row-chevron { grid-area: refund-chevron; }
+
+.payment-list-total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px 0;
+  font-size: var(--text-13);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Payment detail modal ── */
+
+.payment-detail-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 16px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--customer-line);
+}
+
+.payment-detail-amount {
+  font-size: var(--text-32);
+  font-weight: 700;
+  color: var(--customer-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.payment-detail-amount-refund {
+  font-size: var(--text-20);
+  line-height: 1.3;
+}
+
+.payment-detail-grid {
+  margin: 0;
+}
+
+.payment-detail-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--customer-line);
+}
+
+.payment-detail-row:last-child {
+  border-bottom: none;
+}
+
+.payment-detail-row dt {
+  font-size: var(--text-13);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.payment-detail-row dd {
+  margin: 0;
+  font-size: var(--text-13);
+  font-weight: 700;
+  color: var(--customer-ink);
+  text-align: right;
+  /* References and tracking numbers are unbroken strings, long enough to push
+     the dialog wider than the viewport if they are allowed to. */
+  word-break: break-word;
+}
+
+.payment-detail-notes {
+  margin: 14px 0 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--bg-secondary);
+}
+
+/* ── Accepted payment options — compact rows ── */
+
+.payment-options-card {
+  border-radius: 20px;
+  overflow: hidden;
+  border: 1px solid var(--customer-line);
+  background: var(--customer-panel);
+}
+
+.payment-option-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--customer-line);
+}
+
+.payment-option-row:last-child {
+  border-bottom: none;
+}
+
+.payment-security-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 20px 0 8px;
+  font-size: var(--text-12);
+  line-height: 1.5;
+  color: var(--customer-muted);
+}
+
+.payment-security-note svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+@media (max-width: 420px) {
+  .payment-row {
+    grid-template-columns: 52px 1fr minmax(70px, auto) 14px;
+    gap: 8px;
+    padding: 12px;
+  }
+
+  .payment-row.payment-row-refund {
+    grid-template-columns: 52px minmax(0, 1fr) 14px;
+  }
+
+  .payment-list-header .custom-select-root {
+    width: 100%;
+    flex-basis: 100%;
+  }
+}
+
+/* ── Auto-hide customer bottom navigation when typing on mobile ── */
+body.keyboard-active .customer-bottom-nav {
+  display: none;
+}
+
+body:has(input:is([type="text"], [type="search"], [type="password"], [type="email"], [type="tel"], [type="number"], [type="url"], [type="date"], [type="time"], [type="datetime-local"]):focus, textarea:focus) .customer-bottom-nav {
+  display: none;
+}
+
+/* Account forms keep their bottom-nav reserve when focus moves to a button.
+   Collapsing it on input focus moves Save between pointerdown and pointerup,
+   swallowing the first click. Real keyboard clearance still comes from the
+   measured keyboard-open rule in viewport-hardening.css. */
+body.keyboard-active .customer-main:not(:has(.customer-account-page)):not(:has(.booking-page)),
+body.keyboard-active .customer-main:has(.support-chat-page),
+body:has(textarea:focus) .customer-main:has(.support-chat-page) {
+  padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px)) ;
+  scroll-padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px)) ;
+}
+
+/* The column inside the (already shortened) shell. `--keyboard-inset` is
+   subtracted for the same reason as above; the fixed min-height is gone
+   because on a short phone with the keyboard up it was LARGER than the space
+   that remains, and a min-height that exceeds its container is precisely how
+   the composer got pushed out of view. */
+body.keyboard-active .support-chat-page,
+body:has(textarea:focus) .support-chat-page {
+  height: calc(100dvh - 76px - var(--keyboard-inset, 0px)) ;
+  min-height: 0 ;
+}
+
+/* --- Premium Shipment List Cards ---------------------------------------- */
+.customer-shipment-card-v2 {
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease, border-color 0.2s ease ;
+}
+
+.customer-shipment-card-v2:hover {
+  border-color: var(--customer-green) ;
+  box-shadow: var(--shadow-md) ;
+}
+
+.customer-list-card-booked-date {
+  font-size: var(--text-12);
+  color: var(--customer-muted);
+  font-weight: 500;
+  margin-top: 2px;
+}
+
+.customer-list-card-route-visual {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.customer-route-node {
+  font-size: var(--text-14);
+  font-weight: 700;
+}
+
+.customer-route-node.origin {
+  color: var(--customer-ink);
+}
+
+.customer-route-node.destination {
+  color: var(--customer-muted);
+}
+
+.customer-route-line-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+
+.customer-route-line {
+  width: 100%;
+  height: 2px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--customer-line) 80%, transparent);
+  position: relative;
+}
+
+/* --route-progress is set per card by RouteProgressLine (0% before pickup,
+   100% once delivered), so the line reads as a journey, not a decoration. */
+.customer-route-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--route-progress, 0%);
+  border-radius: inherit;
+  background: var(--customer-green);
+}
+
+.customer-route-arrow {
+  position: absolute;
+  left: var(--route-progress, 0%);
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--customer-green);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--customer-green) 22%, transparent);
+}
+
+.customer-route-line.is-cancelled .customer-route-arrow {
+  display: none;
+}
+
+/* ── Push soft prompt ──────────────────────────────────────────────────────
+   .alert-banner is a shared, non-wrapping flex row used across the app, so the
+   wrapping behaviour is scoped to this banner rather than changed there. The
+   copy needs min-width:0 or the flex item refuses to shrink below its text and
+   pushes the buttons off a 320px screen. */
+.push-prompt-banner {
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.push-prompt-copy {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.push-prompt-actions {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+/* Below this the copy and the buttons cannot share a line legibly, so the
+   actions drop to their own row instead of squeezing the text to two words. */
+@media (max-width: 480px) {
+  .push-prompt-actions {
+    width: 100%;
+    justify-content: flex-end;
+    margin-left: 0;
+    margin-top: 4px;
+  }
+}
+
+/* ── Support chat: fixed viewport shell, internal timeline scroll ──────────
+   Match the admin inbox: the app shell and chat column fill the available
+   viewport, while only the message timeline is scrollable. */
+/* `--keyboard-inset` is published by useKeyboardInset (mounted by
+   SupportChatPage) and is 0 whenever no keyboard is up.
+   
+   It is subtracted here because `dvh` does NOT account for the keyboard under
+   this app's `interactive-widget=resizes-visual` viewport: the layout viewport
+   keeps its full height while the bottom of the screen is covered, so a shell
+   sized at 100dvh puts its own last band — the composer — underneath the
+   keyboard. Shrinking the shell to the VISIBLE area is what lifts the composer
+   above it, and because the shell is a flex column the timeline absorbs the
+   difference. */
+.customer-layout-v2:has(.support-chat-page) {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - var(--keyboard-inset, 0px));
+  min-height: 0;
+  overflow: hidden;
+}
+
+.customer-layout-v2:has(.support-chat-page) > .customer-main:has(.support-chat-page) {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  height: auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.customer-layout-v2:has(.support-chat-page) > .customer-main:has(.support-chat-page) > .support-chat-page {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+  padding-bottom: 0;
+  overflow: hidden;
+}
+
+.customer-layout-v2:has(.support-chat-page) .support-chat-shell {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.customer-layout-v2:has(.support-chat-page) .support-chat-messages {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+@supports (height: 100dvh) {
+  .customer-layout-v2:has(.support-chat-page) {
+    height: calc(100dvh - var(--keyboard-inset, 0px));
+    min-height: 0;
+  }
+}
+
+@media (min-width: 900px) {
+  .customer-layout-v2:has(.support-chat-page) > .customer-main:has(.support-chat-page) {
+    padding-bottom: 40px;
+    scroll-padding-bottom: 40px;
+  }
+
+  /* Keep the conversation's scrollbar visible on desktop even though the
+     customer shell hides scrollbars on its other descendants. */
+  .customer-layout-v2 .customer-main .support-chat-messages {
+    scrollbar-width: auto;
+    scrollbar-color: var(--customer-muted) var(--customer-panel-solid);
+    -ms-overflow-style: auto;
+  }
+
+  .customer-layout-v2 .customer-main .support-chat-messages::-webkit-scrollbar {
+    display: block;
+    width: 10px;
+    background: var(--customer-panel-solid);
+  }
+
+  .customer-layout-v2 .customer-main .support-chat-messages::-webkit-scrollbar-thumb {
+    background: var(--customer-muted);
+    border: 2px solid var(--customer-panel-solid);
+    border-radius: 999px;
+  }
+}
+
+@media (max-width: 899.98px) {
+  /* The fixed bottom navigation is outside normal flow, so reserve its full
+     height in the chat page's parent. The composer remains above that reserve
+     while the timeline consumes all remaining space. */
+  .customer-layout-v2:has(.support-chat-page) > .customer-main:has(.support-chat-page) {
+    /* Give the conversation a little more horizontal room on phones while
+       keeping the normal customer-page gutters on tablets. */
+    padding-inline: clamp(12px, 3vw, 18px);
+    padding-bottom: calc(94px + var(--customer-safe-bottom));
+    scroll-padding-bottom: calc(94px + var(--customer-safe-bottom));
+  }
+
+  /* The nav hides while typing; reclaim its reserved space immediately. */
+  body.keyboard-active .customer-layout-v2:has(.support-chat-page) > .customer-main:has(.support-chat-page),
+  body:has(textarea:focus) .customer-layout-v2:has(.support-chat-page) > .customer-main:has(.support-chat-page) {
+    padding-bottom: calc(8px + var(--customer-safe-bottom));
+    scroll-padding-bottom: calc(8px + var(--customer-safe-bottom));
+  }
+}
+
+@media (max-width: 768px) {
+  /* Keep both sides of the same conversation visually consistent on phones. */
+  .customer-layout-v2:has(.support-chat-page) .support-message-stack,
+  .inbox-layout .inbox-message-stack {
+    max-width: 88%;
+  }
+}
+
+@media (max-width: 640px) {
+  /* Tighter still on a short phone viewport: every pixel the header does not
+     take is a pixel of message timeline. */
+  .support-chat-header {
+    padding: 8px 10px;
+    gap: 8px;
+  }
+
+  .support-chat-header-avatar {
+    width: 30px;
+    height: 30px;
+  }
+
+  .support-chat-header-title {
+    font-size: var(--text-16);
+  }
+}
+
+/* --- ABOUT & VERSION -------------------------------------------------
+   The customer "About this app" screen: a centred identity block over a
+   single settings list. The mark, wordmark and version stack on the centre
+   line the way a native About screen does, so the app names itself once and
+   the list below carries every action.
+   --------------------------------------------------------------------- */
+
+.about-app-identity {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+  padding: 12px 16px 28px;
+}
+
+/* The badge artwork is a circle on an opaque white ground (see BrandLogo),
+   so it needs the same clip here that the navbar gives it — square, it reads
+   as a white tile in dark mode. */
+.about-app-mark {
+  border-radius: 50%;
+  margin-bottom: 10px;
+  box-shadow: var(--customer-shadow-soft);
+}
+
+.about-app-tagline {
+  margin: 2px 0 0;
+  font-size: var(--text-14);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.about-app-version {
+  margin: 0;
+  font-size: var(--text-13);
+  font-weight: 600;
+  color: var(--customer-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The right-hand value on a settings cell, iOS-style: the measured state sits
+   just before the chevron.
+   `nowrap` is load-bearing. The longest value is the phrase "Add to Home
+   Screen", and letting it wrap made it and the subtitle fight for the same
+   row at 390px — the subtitle collapsed to four one-word lines. Held on one
+   line, the value takes the width it needs and the subtitle (kept to about
+   three words for the same reason) wraps beneath the title instead. */
+.about-app-cell-value {
+  flex-shrink: 0;
+  white-space: nowrap;
+  text-align: right;
+  font-size: var(--text-13);
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+/* At the narrowest phones even a nowrap value plus a label does not fit, so
+   the value drops to its own line under the title rather than truncating. */
+@media (max-width: 380px) {
+  .profile-menu-item .about-app-cell-value {
+    max-width: 120px;
+    white-space: normal;
+  }
+}
+
+.about-app-footnote {
+  margin: 24px 0 8px;
+  text-align: center;
+  font-size: var(--text-12);
+  font-weight: 600;
+  color: var(--customer-muted);
+}
+
+/* ── Notification icons coloured by kind (NotificationsPage toneMap) ──────
+   Theme tokens, so both themes stay readable. Same colour read or unread:
+   the card background and the dot already say "unread"; the colour says
+   what it is about. */
+.notification-card .notification-icon-wrap.notif-tone-order { background: var(--primary-icon-bg); color: var(--primary-text); }
+.notification-card .notification-icon-wrap.notif-tone-trip { background: var(--info-icon-bg); color: var(--info-text); }
+.notification-card .notification-icon-wrap.notif-tone-message { background: var(--info-icon-bg); color: var(--info-text); }
+.notification-card .notification-icon-wrap.notif-tone-payment { background: var(--warning-icon-bg); color: var(--warning-text); }
+.notification-card .notification-icon-wrap.notif-tone-feedback { background: var(--warning-icon-bg); color: var(--warning-text); }
+.notification-card .notification-icon-wrap.notif-tone-announcement { background: color-mix(in srgb, var(--chart-purple) 14%, transparent); color: var(--chart-purple-text); }
+.notification-card .notification-icon-wrap.notif-tone-alert { background: var(--error-icon-bg); color: var(--error-text); }
+.notification-card .notification-icon-wrap.notif-tone-general { background: var(--bg-secondary); color: var(--text-secondary); }
+
+/* ── Customer Trips page ─────────────────────────────────────────────────── */
+.customer-trips-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+
+.customer-trips-title-row .badge {
+  margin-bottom: 4px;
+}
+
+/* Visible "Book this trip" label inside the card (the card is the button). */
+.customer-trip-book-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 16px;
+  border-radius: var(--radius-full);
+  background: var(--primary-fill);
+  color: #FFFFFF;
+  font-size: var(--text-13);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.customer-trip-list-card:hover .customer-trip-book-cta {
+  background: var(--primary-text-strong);
+}
+
+.customer-trips-note {
+  margin: 4px 0 0;
+  padding: 12px 14px;
+  border: 1px dashed var(--customer-line);
+  border-radius: 14px;
+  color: var(--customer-muted);
+  font-size: var(--text-13);
+  line-height: 1.5;
+  text-align: center;
+}
+
+/* Trip cards: one column on phones, a grid once there is room for two.
+   Sized by the list's own width, so the public /schedules page and the
+   customer layout (with its sidebar) both get the right number of columns. */
+.customer-trip-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  gap: 14px;
+}
+
+.customer-trip-list-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  min-width: 0;
+}
+
+.ctrip-top {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.ctrip-heading { min-width: 0; }
+
+.ctrip-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.ctrip-badges .badge { white-space: nowrap; }
+
+.ctrip-route {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  margin: 0;
+  font-size: var(--text-18);
+  font-weight: 800;
+  line-height: 1.25;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.ctrip-route-arrow { flex-shrink: 0; color: var(--text-tertiary); }
+
+.ctrip-when {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 0;
+  font-size: var(--text-13);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.ctrip-when svg { flex-shrink: 0; }
+
+.ctrip-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ctrip-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+}
+
+.ctrip-stat-label {
+  font-size: var(--text-12);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.ctrip-stat-value {
+  font-size: var(--text-16);
+  font-weight: 800;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.ctrip-stat-sub {
+  font-size: var(--text-12);
+  color: var(--text-secondary);
+}
+
+.ctrip-meter {
+  display: block;
+  height: 6px;
+  margin-top: 4px;
+  border-radius: 999px;
+  background: var(--border-light);
+  overflow: hidden;
+}
+
+.ctrip-meter > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--success);
+}
+
+.ctrip-stat.is-filling .ctrip-meter > span { background: var(--warning); }
+.ctrip-stat.is-filling .ctrip-stat-value { color: var(--warning-text); }
+
+.ctrip-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-light);
+}
+
+.ctrip-number {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--text-13);
+  font-weight: 600;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.ctrip-number svg { flex-shrink: 0; }
+
+/* Narrowest phones: the call to action spans the card so it is easy to tap. */
+@media (max-width: 380px) {
+  .customer-trip-list-card { padding: 16px 14px; }
+  .ctrip-stats { gap: 8px; }
+  .ctrip-stat { padding: 10px 12px; }
+  .ctrip-footer .customer-trip-book-cta { width: 100%; justify-content: center; }
+}
+
+/* ── Reading widths on large screens ──────────────────────────────────────
+   Account forms and the settings list were stretched to the full content
+   width (~935px) on desktop, which made fields and rows hard to scan.
+   Phones are unaffected: these limits are wider than any phone. */
+.account-form-page {
+  width: 100%;
+  max-width: 560px;
+}
+
+.account-form-intro {
+  margin: 0 0 20px;
+  font-size: var(--text-14);
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.profile-page {
+  width: 100%;
+  max-width: 760px;
+  margin-inline: auto;
+}
+
+/* Booking: Full name fields sequence (First Name -> Middle Name -> Last Name) */
+.booking-name-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 640px) {
+  .booking-name-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+}
+
+/* Booking: "Pickup address" / "Delivery address" break inside the sender and
+   receiver forms, so nine fields read as two short groups. */
+.booking-field-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0 -4px;
+  font-size: var(--text-12);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.booking-field-group::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border-light);
+}
+
+/* Booking review: each summary card gets an Edit link back to its step. */
+.booking-review-intro {
+  margin: -6px 0 16px;
+  font-size: var(--text-13);
+  color: var(--text-secondary);
+}
+
+.booking-summary-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.booking-summary-edit {
+  min-height: 32px;
+  padding: 4px 12px;
+  margin: -6px -8px 0 0;
+  border: none;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--primary-text-strong);
+  font-size: var(--text-13);
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.booking-summary-edit:hover { background: var(--primary-bg); }
+.booking-summary-edit:focus-visible { outline: 3px solid var(--primary-light); outline-offset: 2px; }
+
+.booking-summary-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+  margin: 8px 0 0;
+}
+
+.booking-summary-facts div { display: flex; gap: 6px; font-size: var(--text-13); }
+.booking-summary-facts dt { color: var(--text-secondary); }
+.booking-summary-facts dd { margin: 0; font-weight: 700; color: var(--text); }
+
+/* Booking review: each summary card gets an Edit link back to its step. */
+.booking-review-intro { margin: -6px 0 16px; font-size: var(--text-13); color: var(--text-secondary); }
+.booking-summary-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.booking-summary-edit {
+  min-height: 32px; padding: 4px 12px; margin: -6px -8px 0 0;
+  border: none; border-radius: var(--radius-full); background: transparent;
+  color: var(--primary-text-strong); font-size: var(--text-13); font-weight: 700;
+  cursor: pointer; touch-action: manipulation;
+}
+.booking-summary-edit:hover { background: var(--primary-bg); }
+.booking-summary-edit:focus-visible { outline: 3px solid var(--primary-light); outline-offset: 2px; }
+.booking-summary-facts { display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 8px 0 0; }
+.booking-summary-facts div { display: flex; gap: 6px; font-size: var(--text-13); }
+.booking-summary-facts dt { color: var(--text-secondary); }
+.booking-summary-facts dd { margin: 0; font-weight: 700; color: var(--text); }
+
+/* Small phones: names are hidden, so the lines can sit closer and all five
+   step circles fit inside a 320px screen. */
+@media (max-width: 480px) {
+  .step-progress .step-connector { margin-inline: 4px; min-width: 6px; }
+}
+
+/* Home: money owed, tappable overview tiles, compact trip route, status note */
+.home-due-banner {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 14px 16px; border-radius: 20px;
+  background: var(--warning-bg); border: 1px solid var(--warning);
+}
+.home-due-icon {
+  width: 40px; height: 40px; border-radius: 12px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface); color: var(--warning-text);
+}
+.home-due-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.home-due-text strong { font-size: var(--text-16); color: var(--text); }
+.home-due-text span { font-size: var(--text-13); color: var(--text-secondary); overflow-wrap: anywhere; }
+.home-due-action {
+  display: inline-flex; align-items: center; gap: 4px; min-height: 40px;
+  padding: 8px 16px; border-radius: var(--radius-full);
+  background: var(--primary-fill); color: #fff; font-weight: 700; font-size: var(--text-14);
+  text-decoration: none;
+}
+a.customer-snapshot-pill { color: inherit; text-decoration: none; transition: transform 0.15s ease, box-shadow 0.15s ease; }
+a.customer-snapshot-pill:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); }
+.customer-snapshot-value { font-size: var(--text-24); }
+.home-trip-route-title { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; overflow-wrap: anywhere; }
+.home-trip-route-arrow { color: var(--text-tertiary); flex-shrink: 0; }
+.home-trip-route-when { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: var(--text-13); font-weight: 600; color: var(--text-secondary); }
+.home-shipment-status-note { margin: 8px 0 0; font-size: var(--text-13); line-height: 1.45; color: var(--text-secondary); }
+.home-due-text span { overflow-wrap: normal; }
+@media (max-width: 420px) {
+  .home-due-action { flex: 1 1 100%; justify-content: center; }
+}
+
+/* Home on wide screens: active shipments left, next trip right; everything
+   else keeps the full width. Only when both exist, so neither column is left
+   empty. `dense` lets the shipments fill the row beside the trip even though
+   announcements sit between them in the markup. */
+@media (min-width: 1100px) {
+  .customer-home-page:has(.home-col-shipments):has(.home-col-trip) {
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    grid-auto-flow: row dense;
+    align-items: start;
+  }
+  .customer-home-page:has(.home-col-shipments):has(.home-col-trip) > * { grid-column: 1 / -1; }
+  .customer-home-page:has(.home-col-shipments):has(.home-col-trip) > .home-col-trip { grid-column: 2; }
+  .customer-home-page:has(.home-col-shipments):has(.home-col-trip) > .home-col-shipments { grid-column: 1; }
+  /* Match the shipments header row (its View All link makes it 36px tall with
+     a 16px gap) so both columns' first cards start on the same line. */
+  .customer-home-page:has(.home-col-shipments):has(.home-col-trip) > .home-col-trip > .customer-section-title {
+    min-height: 36px;
+    margin-bottom: 16px;
+  }
+}
+
+/* Next trip card: departure and space side by side, no separate delivery box. */
+.home-trip-metrics-grid { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+
+/* ── Home + booking on tablets ─────────────────────────────────────────
+   Below 900px the customer column is capped at 560px for phones; on a
+   portrait tablet that left the dashboard and the booking wizard as a narrow
+   strip with ~100px of empty page either side. These two screens are laid out
+   to use the width, so they get a wider column from 600px up. */
+@media (min-width: 600px) and (max-width: 899.98px) {
+  .customer-main--booking {
+    max-width: 760px;
+  }
+
+  .customer-main:has(.customer-home-page) {
+    max-width: 760px;
+  }
+
+  /* Paired fields (first/last name, phone/Facebook, province/city …) sit side
+     by side again; one-per-row on a tablet read as an endless form. */
+  .booking-page .grid.grid-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Step names fit beside their numbers from here up. */
+@media (min-width: 700px) and (max-width: 899.98px) {
+  .booking-page .step-progress .step-label {
+    display: inline;
+  }
+}
+
+/* ── Booking wizard polish ───────────────────────────────────────────── */
+
+/* The grid gap already separates the fields; the .form-group bottom margin on
+   top of it doubled every gap (~40px) and stretched the forms. */
+.booking-page .grid > .form-group {
+  margin-bottom: 0;
+}
+
+/* Trip summary under the trip picker: two columns on phones instead of a tall
+   single stack of four label/value pairs. */
+@media (max-width: 899.98px) {
+  .booking-trip-preview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 12px;
+    padding: 12px 14px;
+  }
+}
+
+/* "Use my registered address": a whole-row tappable option card rather than
+   a bare checkbox on a grey strip. */
+.booking-use-registered {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  border: 1.5px solid var(--customer-line);
+  border-radius: 16px;
+  background: var(--customer-panel-solid);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+/* Mouse only: a touch tap leaves :hover stuck, which read as "selected". */
+@media (hover: hover) {
+  .booking-use-registered:hover {
+    border-color: color-mix(in srgb, var(--customer-green) 45%, var(--customer-line));
+  }
+}
+
+.booking-use-registered.is-checked {
+  border-color: var(--customer-green);
+  background: var(--customer-green-soft);
+}
+
+.booking-use-registered:has(input:focus-visible) {
+  outline: 3px solid var(--primary-light);
+  outline-offset: 2px;
+}
+
+.booking-use-registered input {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--primary-fill);
+  cursor: pointer;
+}
+
+.booking-use-registered-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.booking-use-registered-text strong {
+  color: var(--customer-ink);
+  font-size: var(--text-14);
+  font-weight: 700;
+}
+
+.booking-use-registered-text span {
+  color: var(--customer-muted);
+  font-size: var(--text-12);
+}

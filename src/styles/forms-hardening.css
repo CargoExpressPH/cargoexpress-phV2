@@ -1,0 +1,73 @@
+/* --- iOS focus zoom prevention, form touch sizing ---
+   Split from remaining.css. Import order in main.css keeps every rule
+   in the original cascade position (pages layer).
+   ----------------------------------------------------------------- */
+
+/* Touch devices: prevent iOS focus auto-zoom (inputs must be >= 16px)
+   and meet the 44px minimum touch-target guideline */
+@media (hover: none) and (pointer: coarse) {
+  .inbox-search-box input,
+  .inbox-textarea {
+    font-size: var(--text-16);
+  }
+
+  /* Global form controls sit at 0.9375rem (15px) — also under the iOS
+     threshold, so every form in the admin and customer apps zooms on focus.
+     Their base rule is in components.css, which this file already outranks. */
+  .form-input,
+  .form-select,
+  .form-textarea,
+  .form-control {
+    font-size: var(--text-16);
+  }
+
+  /* The auth pages need their own selectors here. tabs-steps.css sets
+     `.login-right-panel .form-input, .auth-page .form-input` to 0.9375rem at
+     (0,2,0); a media query adds no specificity, so the (0,1,0) rule above lost
+     and login/register/forgot/reset kept zooming on focus. Matching (0,2,0)
+     wins on source order — tabs-steps.css is imported before this file.
+     Only .form-input needs it: tabs-steps.css never targets the select or
+     textarea variants, so those are already covered above. */
+  .login-right-panel .form-input,
+  .auth-page .form-input {
+    font-size: var(--text-16);
+  }
+
+  /* Search inputs carry no .form-input class, so the rule above misses them.
+     Their 0.875rem comes from loading-search.css `.search-box input` (0,1,1);
+     matching that here wins on source order. Covers admin Orders/Customers/
+     Inbox, customer Home/Orders, and public Tracking. */
+  .search-box input {
+    font-size: var(--text-16);
+  }
+
+  .inbox-mobile-back-btn {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 10px;
+  }
+
+  /* .btn-sm's own rule in components.css sets 34px — well under the 44px
+     touch-target guideline — and until now nothing on a coarse pointer raised
+     it back up, unlike .btn-icon.btn-sm (already fixed at 44×44) and the two
+     Inbox-specific buttons below. This is the general fix: every
+     text-labelled small button across the admin app (Cancel Order, Approve/
+     Decline, Reassign Trip, Record Payment, Mark Resolved, trip status
+     actions, Hide/Restore, etc.) gets a real tap target on touch, with mouse
+     users on the same page seeing no change at all. */
+  .btn-sm {
+    min-height: 44px;
+    padding: 10px 16px;
+  }
+
+  .inbox-filter-tab-btn {
+    min-height: 40px;
+    padding: 8px;
+  }
+
+  .inbox-chat-header-actions .btn {
+    min-height: 44px;
+  }
+}
+
+

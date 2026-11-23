@@ -1,0 +1,704 @@
+/* --- LAYOUT — APP SHELL ----------------------------------------------- */
+
+.app-layout {
+  display: flex;
+  min-height: 100vh;
+  background: linear-gradient(180deg, #FCFEFC 0%, #F5F8F4 42%, #F7F8FB 100%);
+  --sidebar-width: 280px;
+  --sidebar-collapsed-width: 88px;
+}
+
+/* -- Admin Sidebar -- */
+.sidebar {
+  width: var(--sidebar-width);
+  background: var(--sidebar-bg);
+  color: var(--sidebar-text);
+  display: flex; flex-direction: column;
+  position: fixed; top: 0; left: 0; height: 100vh;
+  z-index: calc(var(--z-overlay) + 1);
+  transform: translateX(0);
+  transition:
+    width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border-right: 1px solid var(--sidebar-border);
+  will-change: width, transform;
+}
+
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.48);
+  backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+  z-index: var(--z-overlay);
+  animation: fadeIn 0.18s ease;
+}
+
+/* Collapsed state */
+.sidebar.collapsed { width: var(--sidebar-collapsed-width); }
+.sidebar.collapsed .sidebar-brand .sidebar-brand-wordmark,
+.sidebar.collapsed .sidebar-section-label,
+.sidebar.collapsed .sidebar-link-label,
+.sidebar.collapsed .sidebar-count-badge,
+.sidebar.collapsed .sidebar-user-name,
+.sidebar.collapsed .sidebar-user-role,
+.sidebar.collapsed .sidebar-link > span:not(.sidebar-link-label) { 
+  opacity: 0; width: 0; overflow: hidden; white-space: nowrap;
+  transition: opacity 0.15s ease, width 0.2s ease;
+}
+.sidebar:not(.collapsed) .sidebar-brand .sidebar-brand-wordmark,
+.sidebar:not(.collapsed) .sidebar-section-label,
+.sidebar:not(.collapsed) .sidebar-link-label,
+.sidebar:not(.collapsed) .sidebar-count-badge,
+.sidebar:not(.collapsed) .sidebar-user-name,
+.sidebar:not(.collapsed) .sidebar-user-role,
+.sidebar:not(.collapsed) .sidebar-link > span:not(.sidebar-link-label) {
+  opacity: 1; width: auto;
+  transition: opacity 0.25s ease 0.1s, width 0.2s ease;
+}
+.sidebar.collapsed .sidebar-brand { justify-content: center; padding: 24px 12px; }
+.sidebar.collapsed .sidebar-nav { padding: 8px 6px; }
+.sidebar.collapsed .sidebar-link { justify-content: center; padding: 10px; }
+.sidebar.collapsed .sidebar-link.active::before { left: 0; }
+.sidebar.collapsed .sidebar-footer { padding: 16px 6px; }
+.sidebar.collapsed .sidebar-profile-btn { justify-content: center; padding: 8px; }
+.sidebar.collapsed .sidebar-profile-info,
+.sidebar.collapsed .sidebar-profile-chevron { display: none; }
+
+/* Sidebar link tooltip on collapsed hover */
+.sidebar.collapsed .sidebar-link { position: relative; }
+.sidebar.collapsed .sidebar-link::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: calc(100% + 12px);
+  top: 50%; transform: translateY(-50%);
+  background: var(--sidebar-bg); color: var(--sidebar-text-hover);
+  padding: 6px 12px; border-radius: var(--radius-sm);
+  font-size: var(--text-13); font-weight: 500;
+  white-space: nowrap; z-index: 100;
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--sidebar-border);
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  transform: translateY(-50%) translateX(-4px);
+}
+.sidebar.collapsed .sidebar-link:hover::after {
+  opacity: 1;
+  transform: translateY(-50%) translateX(0);
+}
+
+/* Collapse toggle button */
+.sidebar-collapse-btn {
+  position: absolute;
+  top: 20px; right: -14px;
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: var(--sidebar-bg);
+  border: 1px solid var(--sidebar-border);
+  color: var(--sidebar-text);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  z-index: 10;
+  transition: var(--transition);
+  box-shadow: var(--shadow-sm);
+}
+.sidebar-collapse-btn:hover {
+  color: var(--primary-text); background: var(--sidebar-hover);
+  box-shadow: var(--shadow-md);
+}
+.sidebar-collapse-btn svg {
+  transition: transform 0.3s ease;
+}
+.sidebar.collapsed .sidebar-collapse-btn svg {
+  transform: rotate(180deg);
+}
+
+.sidebar-drawer-close-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  /* Flex sibling of the brand block, which has no min-width floor of its own;
+     without this the 44px width was compressed to 20px at 320px, under the
+     24px WCAG 2.2 target-size minimum. */
+  flex-shrink: 0;
+  margin-left: auto;
+  border: 1px solid var(--sidebar-border);
+  border-radius: var(--radius-sm);
+  background: rgba(71, 85, 105, 0.08);
+  color: var(--sidebar-text);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+.sidebar-drawer-close-btn:hover {
+  color: var(--sidebar-text-hover);
+  background: rgba(71, 85, 105, 0.16);
+}
+
+/* color-mix() tints — gated behind @supports so legacy browsers (no
+   color-mix support) keep the solid rgba() fallback above instead of
+   resetting to transparent. */
+@supports (background: color-mix(in srgb, #000, #fff)) {
+  .sidebar-drawer-close-btn {
+    background: color-mix(in srgb, var(--sidebar-text) 8%, transparent);
+  }
+  .sidebar-drawer-close-btn:hover {
+    background: color-mix(in srgb, var(--sidebar-text) 16%, transparent);
+  }
+}
+
+.sidebar-brand {
+  padding: 24px 20px;
+  display: flex; align-items: center; gap: 12px;
+  border-bottom: 1px solid var(--sidebar-border);
+}
+.sidebar-brand .sidebar-brand-wordmark {
+  margin: 0;
+  font-size: var(--text-20); font-weight: 700;
+  color: var(--primary-text); letter-spacing: -0.02em;
+}
+.sidebar-brand span { color: var(--sidebar-text); font-weight: 400; }
+
+.sidebar-section-label {
+  padding: 16px 20px 8px;
+  font-size: var(--text-12); font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--sidebar-section-label); user-select: none;
+}
+.sidebar.collapsed .sidebar-section-label {
+  padding: 12px 0 4px; height: 0; margin: 0;
+}
+
+.sidebar-nav { flex: 1; padding: 8px 10px; overflow-y: auto; }
+
+.sidebar-link {
+  display: flex; align-items: center; gap: 12px;
+  min-height: 44px;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  color: var(--sidebar-text);
+  font-size: var(--text-14); font-weight: 500;
+  transition: var(--transition);
+  margin-bottom: 2px; cursor: pointer;
+  text-decoration: none; border: none;
+  background: none; width: 100%;
+  position: relative;
+}
+.sidebar-link:hover {
+  background: var(--sidebar-hover);
+  color: var(--sidebar-text-hover);
+}
+.sidebar-link:hover svg { transform: scale(1.08); }
+.sidebar-link svg { transition: var(--transition-fast); flex-shrink: 0; }
+.sidebar-link.danger {
+  color: var(--error-text);
+}
+.sidebar-link.danger:hover {
+  background: var(--error-bg);
+  color: var(--error-text-strong);
+}
+.sidebar-link-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-count-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--radius-full);
+  /* White on #EF4444 is 3.76:1 at 10px/800 — same fix as .admin-notif-badge. */
+  background: linear-gradient(135deg, #DC2626, var(--error-fill));
+  color: white;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-12);
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.28);
+  margin-left: auto;
+}
+
+.sidebar-link.active {
+  background: var(--sidebar-active);
+  color: var(--primary-text);
+  font-weight: 600;
+}
+.sidebar-link.active::before {
+  content: '';
+  position: absolute; left: 0; top: 50%;
+  transform: translateY(-50%);
+  width: 3px; height: 20px;
+  background: var(--primary);
+  border-radius: 0 4px 4px 0;
+}
+
+.sidebar-footer {
+  padding: 10px 10px;
+  border-top: 1px solid var(--sidebar-border);
+}
+
+/* ── Profile Menu ──────────────────────────────────────────────────────── */
+.sidebar-profile-menu {
+  position: relative;
+}
+
+.sidebar-profile-btn {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none; background: transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.18s ease;
+  color: var(--sidebar-text-hover);
+  text-align: left;
+}
+.sidebar-profile-btn:hover,
+.sidebar-profile-btn.active {
+  background: var(--sidebar-hover);
+}
+
+.sidebar-profile-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.sidebar-profile-chevron {
+  flex-shrink: 0;
+  color: var(--sidebar-text);
+  transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.sidebar-profile-chevron.rotated {
+  transform: rotate(180deg);
+}
+
+/* ── Dropdown Panel ───────────────────────────────────────────────────── */
+.sidebar-profile-dropdown {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0; right: 0;
+  background: var(--glass-bg-heavy);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  box-shadow:
+    0 -4px 24px rgba(0, 0, 0, 0.14),
+    0 2px 8px rgba(0, 0, 0, 0.08);
+  backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+  overflow: hidden;
+  animation: profileDropdownIn 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+  z-index: 100;
+}
+
+@keyframes profileDropdownIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.sidebar-profile-dropdown-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 14px 12px;
+}
+
+.sidebar-profile-dropdown-avatar {
+  width: 38px; height: 38px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--primary), var(--primary-light));
+  display: flex; align-items: center; justify-content: center;
+  color: white; font-size: var(--text-14); font-weight: 700;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(var(--primary-rgb, 99, 102, 241), 0.35);
+}
+
+.sidebar-profile-dropdown-name {
+  font-size: var(--text-13); font-weight: 600;
+  color: var(--sidebar-text-hover);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sidebar-profile-dropdown-role {
+  font-size: var(--text-12); color: var(--sidebar-text);
+  margin-top: 1px;
+}
+
+.sidebar-profile-dropdown-divider {
+  height: 1px;
+  background: var(--sidebar-border);
+  margin: 0;
+}
+
+.sidebar-profile-dropdown-item {
+  display: flex; align-items: center; gap: 9px;
+  width: 100%;
+  padding: 10px 14px;
+  border: none; background: transparent;
+  font-size: var(--text-13); font-weight: 500;
+  color: var(--sidebar-text-hover);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+  text-align: left;
+}
+.sidebar-profile-dropdown-item:hover {
+  background: var(--sidebar-hover);
+}
+.sidebar-profile-dropdown-item.danger {
+  color: var(--error, #ef4444);
+}
+.sidebar-profile-dropdown-item.danger:hover {
+  background: rgba(239, 68, 68, 0.08);
+}
+
+/* Avatar styles re-used in sidebar-profile-btn */
+.sidebar-user-avatar {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--primary), var(--primary-light));
+  display: flex; align-items: center; justify-content: center;
+  color: white; font-size: var(--text-13); font-weight: 700;
+  flex-shrink: 0;
+}
+.sidebar-user-name {
+  font-size: var(--text-13); font-weight: 600; color: var(--sidebar-text-hover);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sidebar-user-role {
+  font-size: var(--text-12); color: var(--sidebar-text);
+}
+
+/* -- Main Content Area -- */
+.main-content {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  margin-left: var(--sidebar-width);
+  min-height: 100vh;
+  /* Column flex so .page-content can claim the space left under the 64px
+     topbar. Without it the main region is only as tall as its content, and a
+     short page (Sales on a laptop viewport) sits in a box smaller than the
+     window — measurable as a shrunken content rect and off-by-N click
+     coordinates in automation. */
+  display: flex;
+  flex-direction: column;
+  transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.sidebar.collapsed ~ .main-content,
+.app-layout.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-width); }
+
+.topbar {
+  height: 64px;
+  background: var(--glass-bg-heavy);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border-light);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 32px;
+  position: sticky; top: 0;
+  z-index: var(--z-sticky);
+}
+.topbar-title {
+  font-size: var(--text-18); font-weight: 700;
+  display: flex; align-items: center; gap: 10px;
+}
+.topbar-actions { display: flex; align-items: center; gap: 12px; }
+
+.page-content {
+  width: 100%;
+  max-width: 1720px;
+  margin-inline: auto;
+  min-width: 0;
+  /* Fill the remaining column height rather than wrapping tight to content. */
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  padding: 28px 32px;
+  scroll-behavior: smooth;
+}
+
+/* Every admin page roots itself in .page-transition — that element is the real
+   content box, so it takes the full width and height of .page-content and each
+   page measures the same regardless of how much content it happens to have. */
+.page-content > .page-transition {
+  width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.page-content > * {
+  scroll-margin-top: 80px;
+}
+
+.admin-route-option:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* -- Mobile Menu Toggle (moved from AdminLayout.jsx) -- */
+.mobile-menu-toggle { display: none; }
+.topbar-title { display: none !important; }
+@media (max-width: 1024px) {
+  .mobile-menu-toggle { display: flex !important; }
+  .topbar-title { display: flex !important; }
+  .sidebar-collapse-btn { display: none !important; }
+}
+
+/* ── Customers: index row + detail record ────────────────────────────────
+   Both replace layouts that differed by viewport. These do not: one column in
+   the list and one label/value list on the detail page, phone through desktop.
+   ---------------------------------------------------------------------- */
+
+/* The whole cell is the link, so the tap target is the row's full width
+   rather than the width of the name. */
+.customer-row-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  text-decoration: none;
+}
+
+.customer-row-link:hover .fw-700 {
+  text-decoration: underline;
+}
+
+.customer-row-chevron {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.customer-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.customer-detail-name {
+  margin: 0;
+  font-size: var(--text-20);
+  font-weight: 700;
+}
+
+/* Identity: initials avatar, name, and a one-line "customer since" summary. */
+.customer-profile-identity {
+  display: flex;
+  flex: 1 1 260px;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.customer-profile-avatar {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border: 1px solid color-mix(in srgb, var(--primary) 25%, transparent);
+  border-radius: 50%;
+  background: var(--primary-bg);
+  color: var(--primary-text-strong);
+  font-size: var(--text-18);
+  font-weight: 700;
+}
+
+.customer-profile-name-block {
+  min-width: 0;
+}
+
+.customer-profile-name-block .customer-detail-name {
+  overflow-wrap: anywhere;
+}
+
+.customer-profile-since {
+  margin: 2px 0 0;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+}
+
+/* Contact details as a two-column grid of icon + label + value; one column
+   on phones. Values wrap (a long email or a full address never widens the
+   card past the screen). */
+.customer-profile-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 24px;
+  margin: 16px 0 0;
+}
+
+.customer-profile-fact {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.customer-profile-fact-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+
+.customer-profile-fact-text {
+  min-width: 0;
+}
+
+.customer-profile-fact dt {
+  margin: 0 0 2px;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.customer-profile-fact dd {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-14);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.customer-profile-fact dd a {
+  color: var(--accent-light);
+  text-decoration: none;
+}
+
+.customer-profile-fact dd a:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 640px) {
+  .customer-profile-facts {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+
+  .customer-profile-avatar {
+    width: 44px;
+    height: 44px;
+    font-size: var(--text-16);
+  }
+}
+
+/* ── Activity Logs Page ───────────────────────────────────────────────── */
+.activity-logs-filters {
+  animation-delay: 0ms;
+}
+
+.activity-logs-live-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  color: var(--warning-text);
+  background: var(--warning-bg);
+  font-size: var(--text-12);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.activity-logs-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.activity-logs-live-status--live {
+  color: var(--success-text);
+  background: var(--success-glow);
+}
+
+.activity-logs-live-status--live .activity-logs-live-dot {
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 18%, transparent);
+}
+
+.activity-logs-live-status--offline {
+  color: var(--error-text);
+  background: var(--error-glow);
+}
+
+/* One row: Search grows, Module is fixed, the checkbox and Clear sit at the
+   end. `flex-wrap` is the only concession to narrow screens — below ~720px the
+   controls stack rather than compress the search box to nothing. */
+.activity-logs-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* The one control that should take the leftover width. min-width lets it
+   shrink on a tablet without collapsing; flex: 1 makes it claim the rest. */
+.activity-logs-search {
+  flex: 1 1 240px;
+  min-width: 200px;
+  margin: 0;
+}
+
+.activity-logs-module {
+  flex: 0 0 auto;
+  width: 170px;
+}
+
+/* Pushes the checkbox and Clear to the right edge of the row. */
+.activity-logs-filter-bar .activity-logs-hide-logins {
+  margin-left: auto;
+}
+
+.activity-logs-clear {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .activity-logs-search,
+  .activity-logs-module {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+
+  /* With everything stacked, the auto margin would shove the checkbox to the
+     far right of its own line, away from the control it modifies. */
+  .activity-logs-filter-bar .activity-logs-hide-logins {
+    margin-left: 0;
+  }
+}
+.activity-logs-table-card {
+  animation-delay: 60ms;
+  overflow: hidden;
+}
+
+.activity-log-reference {
+  display: inline-block;
+  max-width: 100%;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: var(--bg-secondary);
+  font-family: monospace;
+  font-size: var(--text-12);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.activity-logs-table-card .details-cell {
+  max-width: 400px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}

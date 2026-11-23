@@ -1,0 +1,91 @@
+import { test, expect } from '@playwright/test';
+
+const VIEWPORTS = [
+  { name: '320', w: 320, h: 568 },
+  { name: '375', w: 375, h: 667 },
+  { name: '390', w: 390, h: 844 },
+  { name: '768', w: 768, h: 1024 },
+  { name: '1280', w: 1280, h: 800 },
+  { name: '1440', w: 1440, h: 900 },
+];
+
+const PUBLIC_ROUTES = [
+  { path: '/', sel: '.auth-page, .login-split-page' },
+  { path: '/track', sel: '.trk-page' },
+  { path: '/about', sel: '.public-about-page' },
+  { path: '/schedules', sel: '.public-shell .customer-trips-page' },
+  { path: '/faq', sel: '.public-shell .customer-help-guidelines-page' },
+  { path: '/terms', sel: '.legal-page' },
+  { path: '/privacy', sel: '.legal-page' },
+  { path: '/login', sel: '.auth-page, .login-split-page' },
+  { path: '/register', sel: '.login-split-page, .auth-page' },
+  { path: '/forgot-password', sel: '.login-split-page' },
+  { path: '/reset-password', sel: '.auth-page' },
+  { path: '/definitely-not-a-real-route', sel: '.not-found-page' },
+];
+
+const checkNoOverflow = async (page, vp) => {
+  const o = await page.evaluate(() => {
+    const d = document.documentElement, b = document.body;
+    return { sw: Math.max(d.scrollWidth, b.scrollWidth), cw: window.innerWidth, diff: Math.max(d.scrollWidth, b.scrollWidth) - window.innerWidth };
+  });
+  expect(o.diff, `overflow ${o.diff}px at ${vp.name} ${o.sw}>${o.cw}`).toBeLessThanOrEqual(2);
+};
+
+for (const vp of VIEWPORTS) {
+  test.describe(`${vp.name} (${vp.w}x${vp.h})`, () => {
+    for (const r of PUBLIC_ROUTES) {
+      test(`${r.path} no overflow`, async ({ page }) => {
+        await page.setViewportSize({ width: vp.w, height: vp.h });
+        await page.goto(r.path, { waitUntil: 'domcontentloaded' });
+        await expect(page.locator(r.sel).first(), `${r.path} did not render its route content`).toBeVisible({ timeout: 15000 });
+        await page.waitForTimeout(600);
+        await checkNoOverflow(page, vp);
+        // search/button not clipped
+        const clipped = await page.evaluate(() => {
+          const els = Array.from(document.querySelectorAll('button, a.btn'));
+          const vw = window.innerWidth;
+          return els.filter(el => {
+            const s = window.getComputedStyle(el);
+            if (s.display==='none'||s.visibility==='hidden') return false;
+            const r = el.getBoundingClientRect();
+            return r.width>0 && (r.left<-5 || r.right>vw+5) && r.top>=0 && r.top<window.innerHeight;
+          }).length;
+        });
+        expect(clipped, `clipped buttons at ${vp.name} ${r.path}`).toBe(0);
+      });
+    }
+  });
+}
+
+test.describe('public tracking lookup errors', () => {
+  test('distinguishes a network failure from a missing shipment', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    let responseMode = 'network';
+
+    await page.route('**/rest/v1/rpc/track_order_public*', async (route) => {
+      if (responseMode === 'network') {
+        await route.abort('failed');
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: '[]',
+      });
+    });
+
+    await page.goto('/track', { waitUntil: 'domcontentloaded' });
+    await page.getByLabel('Tracking number').fill('CE-20260925-1234');
+    await page.getByRole('button', { name: 'Track shipment' }).click();
+
+    await expect(page.getByRole('heading', { name: 'Unable to Check Tracking' })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText('We could not connect to the tracking service. Check your internet connection and try again.')).toBeVisible();
+
+    responseMode = 'not_found';
+    await page.getByRole('button', { name: 'Try Again' }).click();
+
+    await expect(page.getByRole('heading', { name: 'Shipment Not Found' })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText('No shipment found with this tracking number. Please double-check and try again.')).toBeVisible();
+  });
+});

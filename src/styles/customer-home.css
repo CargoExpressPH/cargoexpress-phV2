@@ -1,0 +1,217 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   CUSTOMER HOME — layout, section headers, hero search
+   ═══════════════════════════════════════════════════════════════════════
+   Imported into layer(home), after `density` and `hardening` and before
+   `mobile-inputs` and `perf`, so the iOS focus-zoom and phone-performance
+   rules still win over anything here.
+
+   Home's older rules stay where they are (customer-mobile-refresh.css,
+   premium-refresh.css, viewport-hardening.css, mobile-density.css); this
+   file adds to them and overrides only what it names.
+
+   OLDER iPHONES. The build targets Safari 14, so everything here works on
+   iOS 14, following the fallbacks already used across the app:
+     - no `gap` on flex containers (iOS before 14.5 ignores it) — margins;
+       grid gap is fine;
+     - no :has() (iOS before 15.4) — HomePage.jsx sets classes instead;
+     - `overflow-wrap: break-word` before `anywhere` (iOS before 15.4);
+     - a plain value before every color-mix() (iOS before 16.2).
+   The 320–374px layout (iPhone SE 1st gen, 5s) keeps its full-width Track
+   button from customer-mobile-refresh.css; see the hero search below.
+
+   Order on the page (HomePage.jsx), as restored by 95615bc:
+     hero → money due → overview → trip → announcements → active shipments
+   From 720px up, shipments are the left column and .home-col-side (the
+   trip) the right, with the announcements full width below them. */
+
+/* ── Page rhythm ───────────────────────────────────────────────────────── */
+
+/* Visible on a first visit and when trip capacity takes longer than bookings.
+   A static surface is cheaper to paint on older phones than a large skeleton
+   and gives the next section a clear place until its data arrives. */
+.customer-layout-v2 .home-loading-panel {
+  display: flex;
+  align-items: center;
+  min-height: 76px;
+  padding: 16px 20px;
+  border: 1px solid var(--customer-line);
+  border-radius: 20px;
+  background: var(--customer-panel-solid, var(--surface));
+  color: var(--customer-muted);
+  font-size: var(--text-14);
+  font-weight: 600;
+}
+
+.customer-layout-v2 .home-loading-panel svg {
+  flex: 0 0 auto;
+  margin-right: 12px;
+  color: var(--customer-green-dark);
+}
+
+/* The trip, wrapped so the wide layout can place it as one column. On
+   phones it is just more of the page: the same grid gap. */
+.customer-layout-v2 .home-col-side {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: inherit;
+  align-content: start;
+  min-width: 0;
+}
+
+.customer-layout-v2 .home-col-shipments,
+.customer-layout-v2 .home-col-side > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* Each card carries mb-12; the last one's margin stacked on top of the page
+   gap and left a wider hole under the shipments than under anything else. */
+.customer-layout-v2 .home-col-shipments > :last-child {
+  margin-bottom: 0;
+}
+
+/* ── Section headers ───────────────────────────────────────────────────── */
+
+/* One header shape for every section. min-height matches the "View All"
+   link, so two columns' first cards start on the same line whether or not
+   their header has an action. */
+.customer-layout-v2 .home-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 36px;
+  margin-bottom: 12px;
+}
+
+.customer-layout-v2 .home-section-head > * + * {
+  margin-left: 12px;
+}
+
+.customer-layout-v2 .home-section-head .customer-section-title {
+  margin-top: 0;
+  margin-bottom: 0;
+  line-height: 1.25;
+}
+
+.customer-layout-v2 .home-section-head .customer-section-title > svg {
+  color: var(--primary);
+}
+
+.customer-layout-v2 .home-section-head .customer-inline-action {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* ── Hero search ───────────────────────────────────────────────────────── */
+
+.customer-layout-v2 .customer-home-hero .customer-track-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.customer-layout-v2 .customer-home-hero .customer-track-btn-icon {
+  display: none;
+}
+
+/* 375–520px: the button used to drop to a full-width row below the field,
+   adding a whole row to the hero. It stays beside the field as a square
+   arrow; "Track" is still its accessible name.
+   Not below 375px: on a 320px iPhone SE the field would be left too narrow
+   for its placeholder, so there the full-width button from
+   customer-mobile-refresh.css stays exactly as it was. */
+@media (min-width: 375px) and (max-width: 520px) {
+  .customer-layout-v2 .customer-home-hero .customer-track-form {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .customer-layout-v2 .customer-home-hero .customer-track-form .customer-track-btn {
+    width: 48px;
+    min-width: 48px;
+    padding: 0;
+  }
+
+  .customer-layout-v2 .customer-home-hero .customer-track-btn-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .customer-layout-v2 .customer-home-hero .customer-track-btn-icon {
+    display: block;
+  }
+}
+
+/* ── Overview tiles ────────────────────────────────────────────────────── */
+
+/* viewport-hardening.css stacks the icon over the number at every width,
+   which suits a 110px phone tile and left a 290px desktop tile mostly empty.
+   Where the tile is wide enough, the icon sits beside the number. Grid
+   column-gap, not flex gap, so iOS 14 spaces it too. */
+@media (min-width: 600px) {
+  .customer-layout-v2 .customer-snapshot-pill {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    align-content: center;
+    column-gap: 12px;
+    padding: 14px 16px;
+  }
+}
+
+/* ── Trip card ─────────────────────────────────────────────────────────── */
+
+.customer-layout-v2 .home-trip-error {
+  padding: 20px;
+}
+
+.customer-layout-v2 .home-trip-error-title {
+  font-size: var(--text-18);
+}
+
+.customer-layout-v2 .home-trip-capacity-pct.is-full {
+  color: var(--error-text);
+}
+
+@media (max-width: 768px) {
+  .customer-layout-v2 .home-section-head {
+    margin-bottom: 10px;
+  }
+}
+
+/* ── Wide layout ───────────────────────────────────────────────────────── */
+
+/* Two columns from 720px: shipments left, trip right; everything else,
+   announcements included, keeps the full width.
+   Below 900px the Home column is 760px wide (customer-mobile-refresh.css),
+   so each column is about as wide as a phone and the cards keep their phone
+   proportions instead of stretching a route line across a tablet.
+   `home-split` is set by HomePage.jsx only when the left column has
+   something in it; otherwise the right-hand content takes the full width.
+   The shipments come last in the markup (phone order), so `dense` lets
+   them fill the left cell beside the trip even though the full-width
+   announcements sit between the two. */
+@media (min-width: 720px) {
+  .customer-layout-v2 .customer-home-page.home-split {
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    grid-auto-flow: row dense;
+    align-items: start;
+  }
+
+  .customer-layout-v2 .customer-home-page.home-split > * {
+    grid-column: 1 / -1;
+  }
+
+  .customer-layout-v2 .customer-home-page.home-split > .home-col-shipments {
+    grid-column: 1;
+  }
+
+  .customer-layout-v2 .customer-home-page.home-split > .home-col-side {
+    grid-column: 2;
+  }
+}

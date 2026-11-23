@@ -1,0 +1,1003 @@
+/* --- Table-to-card layout, mobile grid spacing, narrow-screen admin table hardening ---
+   Split from remaining.css. This file holds the CANONICAL responsive table
+   engine (global). admin-modern-refresh.css tints at @900px — fix table
+   bugs HERE.
+   ----------------------------------------------------------------- */
+
+/* -----------------------------------------------------------------------
+   MOBILE-RESPONSIVE DATA & REPORT TABLES — canonical engine
+   Default breakpoint 820px for all admin tables. Wide 7–8-col tables
+   (unsettled 8, bookings 7, activity logs 6, detailed order list 8)
+   also switch at 900px via --wide modifier so the 820–900 band does not
+   squish them into ~380px. Narrow 4–5-col tables (dashboard, customers,
+   status 3-col, routes 4-col) stay as tables until 820, preserving
+   desktop layout on tablet.
+   Card shape is GRID, not flex — grid keeps label/value alignment when
+   the value wraps to two lines.
+   ----------------------------------------------------------------------- */
+
+/* -- Enhanced Mobile Grid Spacing -- */
+@media (max-width: 768px) {
+  .grid { gap: 16px; }
+
+  /* Better stat card mobile layout */
+  .stat-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .stat-card .stat-icon {
+    position: static;
+    opacity: 0.5;
+  }
+}
+
+/* -- Ultra-small screens (320-360px) -- */
+@media (max-width: 360px) {
+  .page-content { padding: 12px; }
+  .btn-lg { padding: 12px 20px; font-size: var(--text-16); }
+  .stat-card .stat-value { font-size: var(--text-24); }
+  .confirm-modal { padding: 20px; margin: 12px; }
+}
+
+
+/* Narrow-screen non-table hardening — keep at 900px (modals, etc.) */
+@media (max-width: 900px) {
+  .modal {
+    max-height: calc(100dvh - 24px);
+  }
+
+  .modal-header {
+    padding: 18px 16px;
+    gap: 12px;
+  }
+
+  .modal-header h3 {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .modal-body {
+    padding: 20px 16px;
+  }
+
+  .modal-footer {
+    padding: 14px 16px;
+    flex-wrap: wrap;
+  }
+
+  .modal-footer .btn {
+    min-height: 44px;
+    flex: 1 1 140px;
+    justify-content: center;
+  }
+
+  .pickup-summary-card {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .pickup-summary-card > div:last-child {
+    width: 100%;
+    font-weight: 700;
+  }
+
+  .pickup-segment-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  }
+
+  .customer-order-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    overflow-x: visible;
+    border-bottom: 0;
+    margin-bottom: 20px;
+  }
+
+  .customer-order-tabs .tab {
+    min-width: 0;
+    min-height: 44px;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-full);
+    margin-bottom: 0;
+    background: var(--surface);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .customer-order-tabs .tab:hover {
+    border-radius: var(--radius-full);
+  }
+
+  .customer-order-tabs .tab.active {
+    border-color: var(--primary);
+    background: var(--primary-bg);
+  }
+
+  .customer-order-tabs .tab:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+
+  .tabs {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .tab {
+    flex: 0 0 auto;
+  }
+
+  .card,
+  .table-container {
+    min-width: 0;
+  }
+}
+
+/* All tables → cards at 820px (default) */
+@media (max-width: 820px) {
+  /* Hide desktop head, show card list. */
+  .data-table thead,
+  .report-table thead {
+    display: none;
+  }
+
+  .data-table,
+  .data-table tbody,
+  .report-table,
+  .report-table tbody {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+
+  /* Card chrome — identical for data-table and report-table */
+  .data-table tbody tr,
+  .report-table tbody tr {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    padding: 16px;
+    margin-bottom: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+    transition: var(--transition);
+  }
+
+  /* A row margin is useful between records, but leaving it on the final row
+     creates an empty band at the bottom of every mobile admin table. */
+  .data-table tbody tr:last-child,
+  .report-table tbody tr:last-child {
+    margin-bottom: 0;
+  }
+
+  /* Empty-state rows are containers, not records. Avoid placing the empty
+     state inside another padded card (and the blank strip that padding adds). */
+  .data-table tbody tr:has(> td.empty-state-cell),
+  .report-table tbody tr:has(> td.empty-state-cell) {
+    padding: 0;
+    margin-bottom: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .data-table tbody tr:hover,
+  .report-table tbody tr:hover {
+    border-color: var(--primary-lighter);
+    box-shadow: var(--shadow-sm);
+  }
+
+  /* ── Single-column list tables ────────────────────────────────────────
+     The card-per-row treatment above exists to group SEVERAL labelled fields
+     from one record into a readable block. A one-column table has nothing to
+     group: the card chrome, the 16px padding and the first-cell divider turn a
+     single name into a ~240px block with a rule under it leading to nothing.
+
+     `.data-table--list` opts out and renders exactly what it is — a list of
+     names with a chevron, the same shape it has on desktop. Which is the
+     point: this table is meant to look identical at every width. */
+  .data-table--list tbody tr {
+    padding: 0;
+    margin-bottom: 0;
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid var(--border-light);
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .data-table--list tbody tr:last-child {
+    border-bottom: 0;
+  }
+
+  .data-table--list tbody tr:hover {
+    background: var(--bg-secondary);
+    border-color: var(--border-light);
+    box-shadow: none;
+  }
+
+  /* The first-cell rule and bottom margin separate a record's title from the
+     labelled fields beneath it. There are none here. */
+  .data-table--list td:first-child {
+    padding: 4px 12px;
+    border-bottom: 0;
+    margin-bottom: 0;
+  }
+
+  /* An empty-state row is not a list item — it keeps its own padding. */
+  .data-table--list td.empty-state-cell {
+    padding: 0;
+  }
+
+  /* Every td becomes a two-column grid: label | value. */
+  .data-table td,
+  .report-table td {
+    display: grid;
+    grid-template-columns: minmax(86px, 108px) minmax(0, 1fr);
+    align-items: start;
+    column-gap: 12px;
+    width: 100%;
+    min-width: 0;
+    padding: 6px 0;
+    border-bottom: none;
+    text-align: right;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    font-size: var(--text-13);
+    line-height: 1.45;
+  }
+
+  .data-table td > *,
+  .report-table td > * {
+    min-width: 0;
+    justify-self: end;
+    text-align: right;
+    max-width: 100%;
+  }
+
+  /* Badges float to the value side */
+  .data-table td .badge,
+  .report-table td .badge {
+    justify-self: end;
+    width: fit-content;
+    margin-left: auto;
+  }
+
+  /* Links and action buttons are tap targets */
+  .data-table td a,
+  .report-table td a {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  /* First cell is the card title — spans full width with a divider */
+  .data-table td:first-child,
+  .report-table td:first-child {
+    grid-template-columns: minmax(0, 1fr);
+    text-align: left;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border-light);
+    margin-bottom: 6px;
+  }
+
+  .data-table td:first-child > *,
+  .report-table td:first-child > * {
+    justify-self: start;
+    text-align: left;
+  }
+
+  .data-table td:first-child strong,
+  .data-table td:first-child a,
+  .report-table td:first-child strong,
+  .report-table td:first-child a {
+    font-size: var(--text-14);
+    font-weight: 700;
+  }
+
+  /* Inline labels — single token set. First-cell title hides its label. */
+  .data-table td[data-label]::before,
+  .report-table td[data-label]::before {
+    content: attr(data-label);
+    font-size: var(--text-12);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-tertiary);
+    line-height: 1.5;
+    min-width: 0;
+    text-align: left;
+    align-self: start;
+    padding-top: 2px;
+    grid-column: 1;
+  }
+
+  .data-table td:first-child::before,
+  .report-table td:first-child::before {
+    display: none;
+  }
+
+  /* Every real cell value must land in column 2. */
+  .data-table td[data-label]:not(:first-child) > *,
+  .report-table td[data-label]:not(:first-child) > * {
+    grid-column: 2;
+  }
+
+  .data-table td:not([data-label]),
+  .report-table td:not([data-label]) {
+    display: block;
+    text-align: left;
+  }
+
+  /* colspan cells are empty states or footers — never grid */
+  .data-table td[colspan],
+  .report-table td[colspan] {
+    display: block;
+    width: 100%;
+    text-align: center;
+  }
+
+  .data-table td[colspan]::before,
+  .report-table td[colspan]::before {
+    content: none;
+  }
+
+  /* …and the same for whatever is inside them.
+     `td:first-child > *` above sets `text-align: left`, which is correct for a
+     row's title line. But a colspan cell is the ONLY cell in its row, so it is
+     `:first-child` too — and the EmptyState inside it inherited that
+     left-alignment. The flex column still centred the BOXES, so the icon and
+     the title looked right; what gave it away was the description, which wraps
+     to two lines and left-aligned its second line against a centred box.
+     That rule is in the `pages` layer and `.empty-state-premium`'s own
+     `text-align: center` is in `components`, so the component could never win
+     on its own — the reset has to happen here.
+     (`justify-self` is not reset: the cell is `display: block`, so its children
+     are not grid items and the property is inert.) */
+  .data-table td[colspan] > *,
+  .report-table td[colspan] > * {
+    text-align: center;
+  }
+
+  /* tfoot summary row — not a card, a single summary bar */
+  .data-table tfoot,
+  .report-table tfoot {
+    display: block;
+    width: 100%;
+  }
+
+  .data-table tfoot tr,
+  .report-table tfoot tr {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 16px;
+    margin-top: 4px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    font-weight: 700;
+    font-size: var(--text-13);
+  }
+
+  .data-table tfoot td,
+  .report-table tfoot td {
+    display: block;
+    padding: 0;
+    border: none;
+    font-size: var(--text-13);
+    font-weight: 700;
+  }
+
+  .data-table tfoot td::before,
+  .report-table tfoot td::before {
+    content: none;
+  }
+
+  .data-table tfoot td.num,
+  .report-table tfoot td.num {
+    margin-left: auto;
+    text-align: right;
+    color: var(--error-text-strong);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .data-table tfoot td:empty,
+  .report-table tfoot td:empty {
+    display: none;
+  }
+
+  /* Numeric columns stay tabular on cards */
+  .data-table td.num,
+  .report-table td.num,
+  .data-table td.text-right,
+  .report-table td.text-right {
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+
+  /* Action column — right-aligned, buttons keep natural width */
+  .data-table td:last-child,
+  .report-table td:last-child {
+    padding-top: 6px;
+    margin-top: 2px;
+    border-top: none;
+  }
+
+  .data-table td[data-label="Action"],
+  .report-table td[data-label="Action"],
+  .data-table td[data-label="Actions"],
+  .report-table td[data-label="Actions"] {
+    grid-template-columns: minmax(86px, 108px) minmax(0, 1fr);
+    padding-top: 10px;
+    margin-top: 6px;
+    border-top: 1px solid var(--border-light);
+    align-items: center;
+  }
+
+  .data-table td[data-label="Action"] > *,
+  .report-table td[data-label="Action"] > *,
+  .data-table td[data-label="Actions"] > *,
+  .report-table td[data-label="Actions"] > * {
+    justify-self: end;
+  }
+
+  /* Action buttons keep natural width and wrap; message icon stays icon-sized.
+     Do NOT force width:100% — that stretched the 28px message button to
+     200px and stacked View Details vertically. */
+  .data-table td[data-label="Action"] .btn:not(.message-customer-btn),
+  .report-table td[data-label="Action"] .btn:not(.message-customer-btn),
+  .data-table td[data-label="Actions"] .btn:not(.message-customer-btn),
+  .report-table td[data-label="Actions"] .btn:not(.message-customer-btn) {
+    width: auto;
+    max-width: 240px;
+    justify-content: center;
+    flex: 0 1 auto;
+  }
+
+  .data-table td[data-label="Actions"] > div,
+  .report-table td[data-label="Actions"] > div {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    width: 100%;
+    gap: 6px;
+  }
+
+  /* Container no longer scrolls — cards are full-width */
+  .table-container {
+    overflow-x: visible;
+    border-radius: var(--radius-md);
+    background: transparent;
+    border: none;
+  }
+
+}
+
+/* Wide 7–8-col tables also at 900px (unsettled, bookings, logs, detailed list) */
+@media (max-width: 900px) {
+  .data-table--wide thead,
+  .report-table--wide thead {
+    display: none;
+  }
+
+  .data-table--wide,
+  .data-table--wide tbody,
+  .report-table--wide,
+  .report-table--wide tbody {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .data-table--wide tbody tr,
+  .report-table--wide tbody tr {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    padding: 16px;
+    margin-bottom: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+    transition: var(--transition);
+  }
+
+  .data-table--wide tbody tr:last-child,
+  .report-table--wide tbody tr:last-child {
+    margin-bottom: 0;
+  }
+
+  .data-table--wide tbody tr:has(> td.empty-state-cell),
+  .report-table--wide tbody tr:has(> td.empty-state-cell) {
+    padding: 0;
+    margin-bottom: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .data-table--wide tbody tr:hover,
+  .report-table--wide tbody tr:hover {
+    border-color: var(--primary-lighter);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .data-table--wide td,
+  .report-table--wide td {
+    display: grid;
+    grid-template-columns: minmax(86px, 108px) minmax(0, 1fr);
+    align-items: start;
+    column-gap: 12px;
+    width: 100%;
+    min-width: 0;
+    padding: 6px 0;
+    border-bottom: none;
+    text-align: right;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    font-size: var(--text-13);
+    line-height: 1.45;
+  }
+
+  .data-table--wide td > *,
+  .report-table--wide td > * {
+    min-width: 0;
+    justify-self: end;
+    text-align: right;
+    max-width: 100%;
+  }
+
+  .data-table--wide td .badge,
+  .report-table--wide td .badge {
+    justify-self: end;
+    width: fit-content;
+    margin-left: auto;
+  }
+
+  .data-table--wide td a,
+  .report-table--wide td a {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .data-table--wide td:first-child,
+  .report-table--wide td:first-child {
+    grid-template-columns: minmax(0, 1fr);
+    text-align: left;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border-light);
+    margin-bottom: 6px;
+  }
+
+  .data-table--wide td:first-child > *,
+  .report-table--wide td:first-child > * {
+    justify-self: start;
+    text-align: left;
+  }
+
+  .data-table--wide td:first-child strong,
+  .data-table--wide td:first-child a,
+  .report-table--wide td:first-child strong,
+  .report-table--wide td:first-child a {
+    font-size: var(--text-14);
+    font-weight: 700;
+  }
+
+  .data-table--wide td[data-label]::before,
+  .report-table--wide td[data-label]::before {
+    content: attr(data-label);
+    font-size: var(--text-12);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-tertiary);
+    line-height: 1.5;
+    min-width: 0;
+    text-align: left;
+    align-self: start;
+    padding-top: 2px;
+    grid-column: 1;
+  }
+
+  .data-table--wide td:first-child::before,
+  .report-table--wide td:first-child::before {
+    display: none;
+  }
+
+  .data-table--wide td[data-label]:not(:first-child) > *,
+  .report-table--wide td[data-label]:not(:first-child) > * {
+    grid-column: 2;
+  }
+
+  .data-table--wide td:not([data-label]),
+  .report-table--wide td:not([data-label]) {
+    display: block;
+    text-align: left;
+  }
+
+  .data-table--wide td[colspan],
+  .report-table--wide td[colspan] {
+    display: block;
+    width: 100%;
+    text-align: center;
+  }
+
+  .data-table--wide td[colspan]::before,
+  .report-table--wide td[colspan]::before {
+    content: none;
+  }
+
+  /* …and the same for whatever is inside them.
+     `td:first-child > *` above sets `text-align: left`, which is correct for a
+     row's title line. But a colspan cell is the ONLY cell in its row, so it is
+     `:first-child` too — and the EmptyState inside it inherited that
+     left-alignment. The flex column still centred the BOXES, so the icon and
+     the title looked right; what gave it away was the description, which wraps
+     to two lines and left-aligned its second line against a centred box.
+     That rule is in the `pages` layer and `.empty-state-premium`'s own
+     `text-align: center` is in `components`, so the component could never win
+     on its own — the reset has to happen here.
+     (`justify-self` is not reset: the cell is `display: block`, so its children
+     are not grid items and the property is inert.) */
+  .data-table--wide td[colspan] > *,
+  .report-table--wide td[colspan] > * {
+    text-align: center;
+  }
+
+  .data-table--wide tfoot,
+  .report-table--wide tfoot {
+    display: block;
+    width: 100%;
+  }
+
+  .data-table--wide tfoot tr,
+  .report-table--wide tfoot tr {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 16px;
+    margin-top: 4px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    font-weight: 700;
+    font-size: var(--text-13);
+  }
+
+  .data-table--wide tfoot td,
+  .report-table--wide tfoot td {
+    display: block;
+    padding: 0;
+    border: none;
+    font-size: var(--text-13);
+    font-weight: 700;
+  }
+
+  .data-table--wide tfoot td::before,
+  .report-table--wide tfoot td::before {
+    content: none;
+  }
+
+  .data-table--wide tfoot td.num,
+  .report-table--wide tfoot td.num {
+    margin-left: auto;
+    text-align: right;
+    color: var(--error-text-strong);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .data-table--wide tfoot td:empty,
+  .report-table--wide tfoot td:empty {
+    display: none;
+  }
+
+  .data-table--wide td.num,
+  .report-table--wide td.num,
+  .data-table--wide td.text-right,
+  .report-table--wide td.text-right {
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+
+  .data-table--wide td:last-child,
+  .report-table--wide td:last-child {
+    padding-top: 6px;
+    margin-top: 2px;
+    border-top: none;
+  }
+
+  .data-table--wide td[data-label="Action"],
+  .report-table--wide td[data-label="Action"],
+  .data-table--wide td[data-label="Actions"],
+  .report-table--wide td[data-label="Actions"] {
+    grid-template-columns: minmax(86px, 108px) minmax(0, 1fr);
+    padding-top: 10px;
+    margin-top: 6px;
+    border-top: 1px solid var(--border-light);
+    align-items: center;
+  }
+
+  .data-table--wide td[data-label="Action"] > *,
+  .report-table--wide td[data-label="Action"] > *,
+  .data-table--wide td[data-label="Actions"] > *,
+  .report-table--wide td[data-label="Actions"] > * {
+    justify-self: end;
+  }
+
+  .data-table--wide td[data-label="Action"] .btn:not(.message-customer-btn),
+  .report-table--wide td[data-label="Action"] .btn:not(.message-customer-btn),
+  .data-table--wide td[data-label="Actions"] .btn:not(.message-customer-btn),
+  .report-table--wide td[data-label="Actions"] .btn:not(.message-customer-btn) {
+    width: auto;
+    max-width: 240px;
+    justify-content: center;
+    flex: 0 1 auto;
+  }
+
+  .data-table--wide td[data-label="Actions"] > div,
+  .report-table--wide td[data-label="Actions"] > div {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    width: 100%;
+    gap: 6px;
+  }
+
+  .data-table--wide + .pagination-wrap,
+  .report-table--wide + .pagination-wrap,
+  .admin-table-card:has(.data-table--wide) .pagination-wrap,
+  .admin-table-card:has(.report-table--wide) .pagination-wrap {
+    border-top: 1px solid var(--border-light);
+  }
+
+  .table-container:has(.data-table--wide),
+  .table-container:has(.report-table--wide) {
+    overflow-x: visible;
+    border-radius: var(--radius-md);
+    background: transparent;
+    border: none;
+  }
+
+  .table-container:has(.data-table--wide) .data-table--wide,
+  .table-container:has(.report-table--wide) .report-table--wide {
+    min-width: 0;
+  }
+}
+
+/* Unpaid shipments is an eight-field financial record, not a generic
+   table row. On phones, the default label/value conversion made every order
+   almost a full screen tall, squeezed promise details into a narrow column,
+   and wrapped its primary action. Keep the semantic table for desktop and
+   assistive technology, but compose each mobile row as a purpose-built card:
+   identity, operational state, a three-column money strip, then one action. */
+@media (max-width: 640px) {
+  .unpaid-table-card {
+    overflow: visible;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+  }
+
+  .unpaid-table tbody tr {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    padding: 14px;
+  }
+
+  .unpaid-table td {
+    grid-column: 1 / -1;
+  }
+
+  .unpaid-table .unpaid-customer-cell,
+  .unpaid-table .unpaid-status-cell {
+    grid-template-columns: 78px minmax(0, 1fr);
+    column-gap: 10px;
+  }
+
+  .unpaid-table .unpaid-settlement-cell {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 4px;
+    padding-top: 10px;
+  }
+
+  .unpaid-table .unpaid-settlement-cell::before,
+  .unpaid-table.data-table--wide td.unpaid-settlement-cell[data-label] > * {
+    grid-column: 1;
+    justify-self: start;
+    text-align: left;
+  }
+
+  .unpaid-table .unpaid-settlement-cell .badge {
+    margin-left: 0;
+  }
+
+  .unpaid-table .unpaid-money-cell {
+    grid-column: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    min-width: 0;
+    margin-top: 10px;
+    padding: 10px 8px;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border-light);
+    border-bottom: 1px solid var(--border-light);
+    text-align: left;
+    overflow-wrap: normal;
+    white-space: nowrap;
+    font-size: clamp(0.7rem, 3.35vw, 0.8125rem);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .unpaid-table .unpaid-money-cell::before {
+    display: block;
+    color: var(--text-tertiary);
+    font-size: var(--text-12);
+    line-height: 1.2;
+    letter-spacing: 0.05em;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .unpaid-table .unpaid-billed-cell {
+    border-left: 1px solid var(--border-light);
+    border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  }
+
+  .unpaid-table .unpaid-balance-cell {
+    border-right: 1px solid var(--border-light);
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  }
+
+  .unpaid-table .unpaid-money-cell > .text-xs {
+    align-self: stretch;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: left;
+  }
+
+  .unpaid-table .unpaid-action-cell {
+    grid-template-columns: minmax(0, 1fr);
+    padding-top: 12px;
+    margin-top: 10px;
+  }
+
+  .unpaid-table .unpaid-action-cell::before {
+    display: none;
+  }
+
+  .unpaid-table .unpaid-action-cell .btn:not(.message-customer-btn) {
+    grid-column: 1;
+    justify-self: stretch;
+    width: 100%;
+    max-width: none;
+    min-height: 44px;
+    white-space: nowrap;
+  }
+
+  .unpaid-table tfoot tr {
+    margin-top: 0;
+  }
+
+  .unpaid-table-card .pagination-wrap {
+    margin-top: 12px;
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+  }
+}
+
+/* Financial headings are intentionally descriptive; let them wrap instead of
+   forcing a wide table or clipping the meaning of the column. */
+.unpaid-table th.num {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+}
+
+/* Status timeline + customer detail stacking */
+@media (max-width: 820px) {
+  .status-timeline {
+    overflow-x: visible;
+    overflow-y: visible;
+    touch-action: pan-y;
+    padding: 6px 4px 0;
+  }
+
+  .status-timeline-track {
+    min-width: 0;
+    flex-direction: column;
+  }
+
+  .status-timeline-step {
+    width: 100%;
+    min-height: 54px;
+    flex-direction: row;
+    align-items: flex-start;
+    padding-bottom: 10px;
+  }
+
+  .status-timeline-line {
+    top: 30px;
+    left: 15px;
+    width: 3px;
+    height: calc(100% - 14px);
+  }
+
+  .status-timeline-node,
+  .status-timeline-step.active .status-timeline-node {
+    width: 30px;
+    height: 30px;
+    flex: 0 0 30px;
+    margin: 0 12px 0 0;
+  }
+
+  .status-timeline-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: none;
+    align-items: flex-start;
+    text-align: left;
+    padding-top: 5px;
+    padding-right: 4px;
+  }
+
+  .status-timeline-label,
+  .status-timeline-step.active .status-timeline-label {
+    text-align: left;
+    font-size: var(--text-13);
+    white-space: normal;
+    /* The 92px cap belongs to the horizontal track's narrow columns; here the
+       whole row is free, so "Out for Delivery" stays on one line. */
+    max-width: none;
+  }
+
+  /* Vertical list: one line, "Sep 25 · 11:56 AM". */
+  .status-timeline-time {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0 5px;
+    white-space: normal;
+  }
+
+  .status-timeline-time span + span::before {
+    content: "· ";
+  }
+
+  .customer-order-detail-header {
+    align-items: flex-start;
+  }
+
+  .customer-contact-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .customer-payment-summary {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    text-align: left;
+  }
+
+  .customer-payment-summary .text-center {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    text-align: left;
+  }
+}

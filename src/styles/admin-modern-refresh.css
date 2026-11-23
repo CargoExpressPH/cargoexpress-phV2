@@ -1,0 +1,1575 @@
+/* -----------------------------------------------------------------------
+   Admin modern refresh
+   Scoped to .app-layout so all admin screens inherit the same product polish.
+   NOTE: the @900px table block near the bottom tints tables-mobile.css.
+   Fix table bugs in tables-mobile.css (canonical engine) unless admin-
+   scoped styling differs.
+   ----------------------------------------------------------------------- */
+
+.app-layout {
+  /* Scoped overrides on purpose — these are NOT duplicates of the
+     tokens.css aliases. Several alias mappings resolve to different values
+     (e.g. dark --admin-green-dark -> var(--primary-lighter) = #064E3B,
+     unreadable as text on the dark surface). The refresh layer wins over
+     layer(tokens), and removing this block would silently darken headings,
+     active sidebar items and muted text in dark mode. */
+  --admin-green: #16A34A;
+  --admin-green-dark: #0B5F3D;
+  --admin-green-soft: #F0FDF4;
+  --admin-green-glow: rgba(18, 138, 90, 0.18);
+  --admin-ink: #0B1220;
+  --admin-muted: #607085;
+  --admin-panel: rgba(255, 255, 255, 0.92);
+  --admin-panel-solid: #FFFFFF;
+  --admin-line: rgba(15, 23, 42, 0.08);
+  --admin-shadow: 0 18px 44px rgba(15, 23, 42, 0.08);
+  --admin-shadow-soft: 0 10px 26px rgba(15, 23, 42, 0.06);
+  color: var(--admin-ink);
+  overflow-x: clip;
+}
+
+[data-theme="dark"] .app-layout {
+  --admin-green: #34D399;
+  --admin-green-dark: #A7F3D0;
+  --admin-green-soft: rgba(16, 185, 129, 0.12);
+  --admin-green-glow: rgba(52, 211, 153, 0.22);
+  --admin-ink: #F8FAFC;
+  --admin-muted: #B7C2D0;
+  --admin-panel: rgba(30, 41, 59, 0.92);
+  --admin-panel-solid: #1E293B;
+  --admin-line: rgba(148, 163, 184, 0.15);
+  --admin-shadow: 0 18px 44px rgba(0, 0, 0, 0.32);
+  --admin-shadow-soft: 0 10px 26px rgba(0, 0, 0, 0.24);
+  background:
+    linear-gradient(180deg, #0F172A 0%, #16213A 48%, #1E293B 100%);
+}
+
+.app-layout .sidebar {
+  top: 0;
+  left: 0;
+  height: 100vh;
+  border: none;
+  border-right: 1px solid var(--admin-line);
+  border-radius: 0;
+  background: var(--admin-panel-solid);
+  color: var(--admin-muted);
+  box-shadow: var(--admin-shadow);
+  overflow: hidden;
+}
+
+/* Subtle gradient tint — only applied where color-mix() is supported.
+   On older browsers (iPhone 6/7, Safari < 16.2) a value containing var()
+   still wins the cascade but resolves invalid, which would reset background
+   to transparent. Gating with @supports keeps the solid fallback there. */
+@supports (background: color-mix(in srgb, #000, #fff)) {
+  .app-layout .sidebar {
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--admin-panel-solid) 96%, var(--admin-green-soft) 4%), var(--admin-panel-solid));
+  }
+}
+
+.app-layout .main-content {
+  margin-left: var(--sidebar-width);
+}
+
+.app-layout .sidebar.collapsed ~ .main-content {
+  margin-left: var(--sidebar-collapsed-width);
+}
+
+.app-layout .sidebar-brand {
+  min-height: 82px;
+  border-bottom-color: var(--admin-line);
+}
+
+.app-layout .sidebar-brand > svg {
+  box-sizing: content-box;
+  width: 22px;
+  height: 22px;
+  padding: 11px;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(145deg, #0B1220, #173725);
+  stroke: var(--admin-green) ;
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.16);
+}
+
+/* --admin-green aliases --primary, which is 3.30:1 on the white sidebar. The
+   wordmark renders at 13.4px, so it is body-size text needing 4.5:1 — use the
+   AA text token, which stays theme-aware (#15803D light / #34D399 dark). */
+.app-layout .sidebar-brand .sidebar-brand-wordmark {
+  color: var(--primary-text);
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.app-layout .sidebar-brand .sidebar-brand-wordmark span {
+  color: var(--primary-text);
+  font-weight: 700;
+}
+
+.app-layout .sidebar-section-label {
+  color: color-mix(in srgb, var(--admin-muted) 78%, transparent);
+  font-weight: 700;
+  letter-spacing: 0.11em;
+}
+
+.app-layout .sidebar-link {
+  min-height: 48px;
+  border-radius: var(--radius-lg);
+  color: var(--admin-muted);
+  font-weight: 700;
+}
+
+.app-layout .sidebar-link:hover {
+  background: var(--admin-green-soft);
+  color: var(--admin-green-dark);
+}
+
+.app-layout .sidebar-link.active {
+  background: var(--admin-green-soft);
+  color: var(--admin-green-dark);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--admin-green) 16%, transparent);
+}
+
+.app-layout .sidebar-link.active::before {
+  left: 7px;
+  width: 4px;
+  height: 22px;
+  border-radius: var(--radius-full);
+  background: var(--admin-green);
+}
+
+.app-layout .sidebar-footer {
+  border-top-color: var(--admin-line);
+  background: color-mix(in srgb, var(--admin-green-soft) 42%, transparent);
+}
+
+.app-layout .sidebar-profile-btn {
+  min-height: 48px;
+  border: 1px solid var(--admin-line);
+  border-radius: var(--radius-md);
+  background: var(--admin-panel);
+}
+.app-layout .sidebar-profile-btn:hover,
+.app-layout .sidebar-profile-btn.active {
+  background: color-mix(in srgb, var(--admin-green-soft) 35%, var(--admin-panel));
+  border-color: var(--admin-green);
+}
+
+.app-layout .sidebar-user-avatar {
+  background: linear-gradient(135deg, var(--admin-green), var(--primary-light));
+  box-shadow: 0 10px 22px rgba(18, 138, 90, 0.22);
+}
+
+.app-layout .topbar .sidebar-user-avatar {
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s ease;
+  cursor: pointer;
+}
+.app-layout .topbar .sidebar-user-avatar:hover {
+  transform: scale(1.08) translateY(-1px);
+  box-shadow: 0 12px 26px rgba(18, 138, 90, 0.35);
+}
+.app-layout .topbar .sidebar-user-avatar:active {
+  transform: scale(0.96);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   ADMIN NOTIFICATION BELL — Enterprise Notification System
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Bell Button ─────────────────────────────────────────────────────────────── */
+.admin-notif-bell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-light);
+  background: var(--surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.25s ease, color 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+}
+.admin-notif-bell:hover {
+  background: var(--bg-secondary);
+  color: var(--text);
+  border-color: var(--border);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+.admin-notif-bell:active {
+  transform: scale(0.95);
+}
+.admin-notif-bell.active {
+  background: color-mix(in srgb, var(--admin-green) 12%, var(--surface));
+  border-color: var(--admin-green);
+  color: var(--admin-green);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--admin-green) 15%, transparent);
+}
+.admin-notif-bell.has-unread {
+  animation: bellShake 0.6s ease-in-out;
+}
+
+/* ── Badge ────────────────────────────────────────────────────────────────────── */
+.admin-notif-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-full);
+  /* Darkened from #EF4444→#DC2626: white on #EF4444 is 3.76:1, and at
+     0.5625rem/800 this is body-size text needing 4.5:1. */
+  background: linear-gradient(135deg, #DC2626, var(--error-fill));
+  color: white;
+  font-size: var(--text-12);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--surface);
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.45);
+  animation: badgePop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+  z-index: 2;
+}
+
+/* ── Ping Ring Animation ──────────────────────────────────────────────────────── */
+.admin-notif-ring {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(239, 68, 68, 0.4);
+  animation: notifPing 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* ── Dropdown Panel ──────────────────────────────────────────────────────────── */
+.admin-notif-dropdown {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: 400px;
+  max-height: 520px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  z-index: calc(var(--z-dropdown, 1000) + 10);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: notifDropdownIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: top right;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────────── */
+.admin-notif-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid var(--border-light);
+}
+.admin-notif-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.admin-notif-header h3 {
+  font-size: var(--text-16);
+  font-weight: 700;
+  color: var(--text);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+.admin-notif-unread-pill {
+  font-size: var(--text-12);
+  font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, var(--admin-green), var(--primary-light));
+  color: white;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  box-shadow: 0 2px 8px rgba(18, 138, 90, 0.25);
+}
+.admin-notif-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.admin-notif-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.admin-notif-action-btn:hover {
+  background: var(--bg-secondary);
+  color: var(--text);
+}
+.admin-notif-action-btn.danger:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--error-text-strong);
+}
+
+/* ── Body ────────────────────────────────────────────────────────────────────── */
+.admin-notif-body {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-light) transparent;
+}
+.admin-notif-body::-webkit-scrollbar { width: 4px; }
+.admin-notif-body::-webkit-scrollbar-track { background: transparent; }
+.admin-notif-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+/* ── Group Label ─────────────────────────────────────────────────────────────── */
+.admin-notif-group-label {
+  font-size: var(--text-12);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary);
+  padding: 10px 18px 4px;
+}
+
+/* ── Notification Item ───────────────────────────────────────────────────────── */
+.admin-notif-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 18px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease;
+  position: relative;
+  animation: notifItemIn 0.3s ease both;
+}
+.admin-notif-item:hover {
+  background: var(--bg-secondary);
+}
+.admin-notif-item.unread {
+  background: color-mix(in srgb, var(--admin-green) 4%, transparent);
+}
+.admin-notif-item.unread:hover {
+  background: color-mix(in srgb, var(--admin-green) 8%, transparent);
+}
+
+/* ── Item Icon ───────────────────────────────────────────────────────────────── */
+.admin-notif-item-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+.admin-notif-item:hover .admin-notif-item-icon {
+  transform: scale(1.06);
+}
+
+/* ── Item Content ────────────────────────────────────────────────────────────── */
+.admin-notif-item-content {
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+.admin-notif-item-title {
+  font-size: var(--text-13);
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.3;
+  margin-bottom: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.admin-notif-item.unread .admin-notif-item-title {
+  color: var(--admin-ink, var(--text));
+}
+.admin-notif-item-msg {
+  font-size: var(--text-12);
+  color: var(--text-secondary);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.admin-notif-item-time {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-12);
+  color: var(--text-tertiary);
+  margin-top: 4px;
+}
+
+/* ── Item Actions ────────────────────────────────────────────────────────────── */
+.admin-notif-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+.admin-notif-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--admin-green), var(--primary-light));
+  box-shadow: 0 0 8px rgba(18, 138, 90, 0.4);
+  flex-shrink: 0;
+}
+.admin-notif-delete-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-xs);
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+@media (hover: none) and (pointer: coarse) {
+  .admin-notif-delete-btn {
+    opacity: 1;
+    min-width: 36px;
+    min-height: 36px;
+    width: 36px;
+    height: 36px;
+  }
+}
+.admin-notif-item:hover .admin-notif-delete-btn {
+  opacity: 1;
+}
+.admin-notif-delete-btn:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--error-text-strong);
+}
+.admin-notif-chevron {
+  color: var(--text-tertiary);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.admin-notif-item:hover .admin-notif-chevron {
+  opacity: 0.6;
+}
+
+/* ── Loading State ───────────────────────────────────────────────────────────── */
+.admin-notif-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 48px 20px;
+  color: var(--text-tertiary);
+  font-size: var(--text-13);
+}
+
+/* ── Empty State ─────────────────────────────────────────────────────────────── */
+.admin-notif-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 20px;
+  text-align: center;
+}
+.admin-notif-empty-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  margin-bottom: 14px;
+}
+.admin-notif-empty-title {
+  font-size: var(--text-16);
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 4px;
+}
+.admin-notif-empty-sub {
+  font-size: var(--text-13);
+  color: var(--text-tertiary);
+  margin: 0;
+}
+
+/* ── Animations ──────────────────────────────────────────────────────────────── */
+@keyframes bellShake {
+  0%, 100% { transform: rotate(0deg); }
+  15% { transform: rotate(12deg); }
+  30% { transform: rotate(-10deg); }
+  45% { transform: rotate(8deg); }
+  60% { transform: rotate(-6deg); }
+  75% { transform: rotate(3deg); }
+}
+
+@keyframes notifPing {
+  0% { transform: scale(1); opacity: 0.6; }
+  75%, 100% { transform: scale(2.2); opacity: 0; }
+}
+
+@keyframes notifDropdownIn {
+  0% { opacity: 0; transform: scale(0.95) translateY(-6px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes notifItemIn {
+  0% { opacity: 0; transform: translateX(8px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+
+/* ── Responsive ──────────────────────────────────────────────────────────────── */
+@media (max-width: 480px) {
+  .admin-notif-dropdown {
+    width: calc(100vw - 24px);
+    right: -12px;
+    max-height: 70vh;
+  }
+  .admin-notif-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 8px;
+    padding: 12px;
+  }
+  .admin-notif-header-left {
+    min-width: 0;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+  .admin-notif-header h3 { white-space: nowrap; }
+  .admin-notif-header-actions { gap: 2px; }
+  .admin-notif-action-btn {
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
+  }
+  .admin-notif-item {
+    gap: 8px;
+    padding: 10px 12px;
+  }
+  .admin-notif-item-icon { width: 32px; height: 32px; }
+  .admin-notif-item-actions { gap: 4px; }
+  .admin-notif-chevron { display: none; }
+  .admin-notif-item-msg { -webkit-line-clamp: 3; }
+}
+@media (min-width: 481px) and (max-width: 768px) {
+  .admin-notif-dropdown {
+    width: 360px;
+  }
+}
+
+.app-layout .topbar {
+  height: 74px;
+  border-bottom: 0;
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(22px) saturate(170%);
+  -webkit-backdrop-filter: blur(22px) saturate(170%);
+  box-shadow: none;
+}
+
+[data-theme="dark"] .app-layout .topbar {
+  background: rgba(8, 19, 33, 0.82);
+}
+
+.app-layout .topbar::after {
+  content: '';
+  position: absolute;
+  left: 32px;
+  right: 32px;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--admin-line), transparent);
+}
+
+/* --admin-green aliases --primary (3.30:1 on white). The topbar wordmark is
+   body-size text, so it needs the AA token — theme-aware in both modes. */
+.app-layout .topbar-title {
+  color: var(--primary-text);
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.app-layout .topbar-title .text-accent,
+.app-layout .topbar-title .text-primary {
+  color: var(--primary-text);
+}
+
+.app-layout .topbar-logo-icon {
+  stroke: var(--admin-green);
+}
+
+.app-layout .topbar-actions .btn-icon,
+.app-layout .theme-toggle-btn {
+  border-radius: var(--radius-full);
+}
+
+.app-layout .topbar-actions .btn-icon:hover,
+.app-layout .theme-toggle-btn:hover {
+  background: var(--admin-green-soft);
+  color: var(--admin-green-dark);
+}
+
+.app-layout .page-content {
+  padding: clamp(22px, 3vw, 36px);
+}
+
+.app-layout .admin-page-header {
+  margin-bottom: 22px;
+  padding: 20px;
+  border: 1px solid var(--admin-line);
+  border-radius: var(--radius-xl);
+  background: var(--admin-panel-solid, var(--surface));
+  background:
+    linear-gradient(135deg, var(--admin-green-soft), color-mix(in srgb, var(--admin-panel-solid) 92%, transparent));
+  box-shadow: var(--admin-shadow-soft);
+}
+
+.app-layout .admin-page-title {
+  color: var(--admin-ink);
+  font-size: clamp(1.55rem, 3vw, 2.2rem);
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.app-layout .admin-page-subtitle {
+  color: var(--admin-muted);
+}
+
+.app-layout .admin-page-meta {
+  align-items: center;
+}
+
+.app-layout .card,
+.app-layout .admin-section-card,
+.app-layout .admin-table-card,
+.app-layout .modal,
+.app-layout .confirm-modal {
+  border-color: var(--admin-line);
+  border-radius: var(--radius-lg);
+  background: var(--admin-panel);
+  box-shadow: var(--admin-shadow-soft);
+}
+
+/* Portaled modals render on <body>, outside .app-layout, so they get the
+   base .modal radius (--radius-xl). In-layout modals match it here so every
+   admin modal agrees regardless of where it mounts. */
+.app-layout .modal,
+.app-layout .confirm-modal {
+  border-radius: var(--radius-xl);
+}
+
+.app-layout .card:hover,
+.app-layout .admin-list-card:hover {
+  border-color: color-mix(in srgb, var(--admin-green) 20%, var(--admin-line));
+  box-shadow: var(--admin-shadow);
+}
+
+.app-layout .card-header {
+  border-bottom-color: var(--admin-line);
+  background: color-mix(in srgb, var(--admin-panel-solid) 88%, var(--admin-green-soft) 12%);
+}
+
+.app-layout .card-header h3 {
+  color: var(--admin-ink);
+  font-weight: 700;
+}
+
+.app-layout .card-body {
+  padding: 22px;
+}
+
+.app-layout .stat-card {
+  border-radius: var(--radius-lg);
+}
+
+.app-layout .stat-card:hover {
+  border-color: color-mix(in srgb, var(--admin-green) 22%, transparent);
+  box-shadow: var(--admin-shadow);
+  filter: none;
+}
+
+.app-layout .stat-card .stat-value {
+  font-weight: 700;
+}
+
+.app-layout .stat-card .stat-label {
+  font-weight: 700;
+}
+
+.app-layout .btn {
+  min-height: 46px;
+  border-radius: var(--radius-lg);
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.app-layout .btn-primary {
+  background: linear-gradient(135deg, var(--primary-fill) 0%, var(--primary-text-strong) 100%);
+  color: #FFFFFF;
+  box-shadow: 0 14px 28px rgba(18, 138, 90, 0.24);
+}
+
+.app-layout .btn-primary:hover {
+  background: linear-gradient(135deg, var(--primary-text-strong), var(--primary-dark));
+  box-shadow: 0 18px 34px rgba(18, 138, 90, 0.28);
+}
+
+.app-layout .btn-outline:hover,
+.app-layout .btn-ghost:hover {
+  border-color: color-mix(in srgb, var(--admin-green) 28%, transparent);
+  background: var(--admin-green-soft);
+  color: var(--admin-green-dark);
+}
+
+.app-layout .form-input,
+.app-layout .form-select,
+.app-layout .form-textarea,
+.app-layout .form-control,
+.app-layout .search-box input {
+  min-height: 48px;
+  border-color: var(--admin-line);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--admin-panel-solid) 92%, var(--bg) 8%);
+  box-shadow: inset 0 1px 0 var(--control-inset-highlight);
+}
+
+.app-layout .form-input:focus,
+.app-layout .form-select:focus,
+.app-layout .form-textarea:focus,
+.app-layout .form-control:focus,
+.app-layout .search-box:focus-within input {
+  border-color: var(--admin-green);
+  box-shadow: 0 0 0 4px var(--admin-green-glow);
+}
+
+.app-layout .form-label {
+  color: var(--admin-muted);
+  font-weight: 700;
+}
+
+.app-layout .form-helper,
+.app-layout .admin-detail-label {
+  color: var(--admin-muted);
+}
+
+.app-layout .admin-toolbar {
+  margin-bottom: 18px;
+  padding: 10px;
+  border: 1px solid var(--admin-line);
+  border-radius: var(--radius-lg);
+  background: var(--admin-panel);
+  box-shadow: var(--admin-shadow-soft);
+}
+
+/* Bookings/Customers toolbar contains only search — make it behave exactly like FeedbackPage standalone search (single input, no outer card) */
+.app-layout .admin-toolbar:has(.search-box) {
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+}
+.app-layout .admin-toolbar:has(.search-box) .search-box input {
+  border: 1.5px solid var(--admin-line);
+  background: color-mix(in srgb, var(--admin-panel-solid) 92%, var(--bg) 8%);
+  box-shadow: inset 0 1px 0 var(--control-inset-highlight);
+  border-radius: var(--radius-lg);
+}
+.app-layout .admin-toolbar:has(.search-box):focus-within {
+  border: none;
+  box-shadow: none;
+  background: transparent;
+}
+.app-layout .admin-toolbar:has(.search-box) .search-box:focus-within input {
+  border-color: var(--admin-green);
+  box-shadow: 0 0 0 3px var(--admin-green-glow);
+  background: color-mix(in srgb, var(--admin-panel-solid) 92%, var(--bg) 8%);
+}
+
+.app-layout .tabs,
+.app-layout .admin-filter-row,
+.app-layout .report-period-tabs {
+  gap: 8px;
+  border-bottom: 0;
+}
+
+.app-layout .admin-filter-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  overflow: visible;
+}
+
+.app-layout .responsive-filter-tabs.tabs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  overflow: visible;
+}
+
+.app-layout .tab,
+.app-layout .admin-filter-row .btn,
+.app-layout .report-period-tab {
+  min-height: 44px;
+  border: 1px solid var(--admin-line);
+  border-radius: var(--radius-full);
+  background: var(--admin-panel);
+  color: var(--admin-muted);
+  font-weight: 700;
+  min-width: 0;
+  width: 100%;
+  white-space: normal;
+  text-align: center;
+  justify-content: center;
+}
+
+.app-layout .tab.active,
+.app-layout .admin-filter-row .btn.active,
+.app-layout .report-period-tab.active {
+  border-color: color-mix(in srgb, var(--admin-green) 40%, transparent);
+  background: var(--admin-green-soft);
+  color: var(--admin-green-dark);
+}
+
+.app-layout .tabs:not(.responsive-filter-tabs) .tab {
+  flex: 0 0 auto;
+  width: auto;
+  white-space: nowrap;
+}
+
+.app-layout .responsive-filter-tabs .tab {
+  width: 100%;
+  white-space: normal;
+}
+
+.app-layout .admin-table-card {
+  overflow: hidden;
+}
+
+.app-layout .table-container {
+  border-radius: var(--radius-lg);
+  background: var(--admin-panel);
+}
+
+.app-layout .data-table th {
+  background: color-mix(in srgb, var(--admin-green-soft) 72%, var(--admin-panel-solid) 28%);
+  color: var(--admin-green-dark);
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  border-bottom-color: var(--admin-line);
+}
+
+.app-layout .data-table td {
+  border-bottom-color: var(--admin-line);
+}
+
+.app-layout .data-table tbody tr:hover {
+  background: color-mix(in srgb, var(--admin-green-soft) 62%, transparent);
+}
+
+.app-layout .data-table tbody tr:hover td:first-child {
+  box-shadow: inset 4px 0 0 var(--admin-green);
+}
+
+.app-layout .admin-list-card {
+  border-radius: var(--radius-lg);
+}
+
+.app-layout .admin-list-card-title {
+  color: var(--admin-ink);
+  font-weight: 700;
+}
+
+.app-layout .admin-list-card-meta,
+.app-layout .admin-list-card-footer {
+  color: var(--admin-muted);
+}
+
+.app-layout .admin-detail-item,
+.app-layout .admin-payment-summary,
+.app-layout .booking-summary-card {
+  border-color: var(--admin-line);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--admin-panel-solid) 82%, var(--admin-green-soft) 18%);
+}
+
+.app-layout .admin-route-option {
+  border: 1px solid var(--admin-line);
+  border-radius: var(--radius-md);
+  background: var(--admin-panel);
+}
+
+.app-layout .admin-route-option:hover {
+  border-color: color-mix(in srgb, var(--admin-green) 28%, transparent);
+  background: var(--admin-green-soft);
+}
+
+.app-layout .profile-card-premium {
+  border-color: var(--admin-line);
+  border-radius: var(--radius-xl);
+  background: var(--admin-panel);
+  box-shadow: var(--admin-shadow);
+}
+
+.app-layout .profile-card-banner {
+  border-radius: var(--radius-xl) var(--radius-xl) var(--radius-lg) var(--radius-lg);
+  background: linear-gradient(135deg, var(--admin-green-dark), var(--admin-green));
+}
+
+.app-layout .profile-card-avatar {
+  background: linear-gradient(135deg, var(--admin-green), var(--primary-light));
+  box-shadow: 0 16px 32px rgba(18, 138, 90, 0.24);
+}
+
+.app-layout .profile-card-name {
+  color: var(--admin-ink);
+  font-weight: 700;
+}
+
+.app-layout .profile-card-email,
+.app-layout .profile-card-badge {
+  color: var(--admin-muted);
+}
+
+.app-layout .profile-menu-item:hover {
+  background: var(--admin-green-soft);
+  color: var(--admin-green-dark);
+}
+
+.app-layout .capacity-bar {
+  background: color-mix(in srgb, var(--admin-line) 70%, transparent);
+}
+
+.unpaid-filter-row .unpaid-search-box {
+  flex: 1;
+  min-width: 250px;
+}
+
+
+@media (max-width: 1024px) {
+  .app-layout .sidebar,
+  .app-layout .sidebar.collapsed {
+    top: 0;
+    left: 0;
+    height: 100vh;
+    width: min(86vw, 320px);
+    max-width: 320px;
+    border-radius: 0;
+    transform: translateX(-100%);
+  }
+
+  .app-layout .sidebar.open,
+  .app-layout .sidebar.open.collapsed {
+    transform: translateX(0);
+    box-shadow: 18px 0 44px rgba(2, 8, 23, 0.28);
+  }
+
+  .app-layout .main-content,
+  .app-layout .sidebar.collapsed ~ .main-content {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .app-layout.sidebar-collapsed .main-content {
+    width: 100%;
+  }
+
+  .app-layout .topbar {
+    height: 66px;
+  }
+
+  .app-layout .responsive-filter-tabs {
+    display: none ;
+  }
+
+  .app-layout .responsive-filter-select-wrap {
+    display: block;
+  }
+}
+
+@media (max-width: 768px) {
+  .app-layout .page-content {
+    padding: 18px;
+  }
+
+  .app-layout .topbar {
+    height: 62px;
+    padding-inline: 18px;
+  }
+
+  .app-layout .topbar > .flex {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .app-layout .topbar-title {
+    min-width: 0;
+    font-size: var(--text-16);
+    gap: 8px;
+  }
+
+  .app-layout .topbar-title > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .app-layout .topbar-actions {
+    flex: 0 0 auto;
+    gap: 6px;
+  }
+
+  .app-layout .topbar-actions .btn-icon,
+  .app-layout .theme-toggle-btn {
+    min-width: 40px;
+    width: 40px;
+    min-height: 40px;
+    height: 40px;
+    padding: 0;
+  }
+
+  .app-layout .topbar-command-btn {
+    gap: 0;
+  }
+
+  .app-layout .topbar-command-kbd {
+    display: none;
+  }
+
+  .app-layout .topbar::after {
+    left: 18px;
+    right: 18px;
+  }
+
+  .app-layout .admin-page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+    padding: 18px;
+    border-radius: var(--radius-lg);
+  }
+
+  .app-layout .admin-page-header > div:first-child {
+    min-width: 0;
+  }
+
+  .app-layout .admin-page-header .flex.gap-8 {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+
+  .app-layout .admin-page-header .btn {
+    flex: 1 1 auto;
+    min-width: 0;
+    justify-content: center;
+  }
+
+  .app-layout .admin-toolbar {
+    padding: 8px;
+  }
+}
+
+@media (max-width: 640px) {
+  .admin-page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+  }
+
+  .admin-page-header .flex.gap-8 {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .admin-page-header .btn {
+    flex: 1 1 140px;
+    justify-content: center;
+  }
+
+  .unpaid-filter-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .unpaid-filter-row .responsive-filter {
+    width: 100%;
+  }
+
+  .unpaid-filter-row .unpaid-search-box {
+    width: 100%;
+    max-width: none;
+  }
+
+  /* The unsettled rows are already individual mobile cards. Remove the
+     desktop table-card shell so phones do not show a second border/background
+     around the list and sacrifice another layer of horizontal space. */
+  .app-layout .unpaid-table-card {
+    overflow: visible;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+  }
+}
+
+/* --- Admin table card conversion — aligns to canonical 900px engine
+   Do NOT re-introduce a separate 820px flex layout. tables-mobile.css is
+   canonical; this block only tints the cards and adjusts label color for
+   the admin theme, inheriting the grid shape and spacing from there. --- */
+@media (max-width: 820px) {
+  .app-layout .table-container {
+    overflow-x: visible;
+  }
+
+  /* Keep table empty states genuinely compact. premium-refresh.css applies a
+     general phone minimum height later than the component variant otherwise. */
+  .app-layout .empty-state-premium.empty-state-compact {
+    min-height: 0;
+    padding: 28px 16px;
+  }
+
+  .app-layout .data-table tbody tr,
+  .app-layout .report-table tbody tr {
+    background: var(--admin-panel);
+    border-color: var(--admin-line);
+    box-shadow: var(--admin-shadow-soft);
+  }
+
+  .app-layout .data-table td[data-label]::before,
+  .app-layout .report-table td[data-label]::before {
+    color: var(--admin-muted);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+
+  .app-layout .data-table td:first-child,
+  .app-layout .report-table td:first-child {
+    border-bottom-color: var(--admin-line);
+  }
+
+  .app-layout .data-table td[data-label="Action"],
+  .app-layout .report-table td[data-label="Action"],
+  .app-layout .data-table td[data-label="Actions"],
+  .app-layout .report-table td[data-label="Actions"] {
+    border-top-color: var(--admin-line);
+  }
+
+  .app-layout .data-table tfoot tr,
+  .app-layout .report-table tfoot tr {
+    background: color-mix(in srgb, var(--admin-green-soft) 55%, var(--admin-panel));
+    border-color: var(--admin-line);
+  }
+
+  .app-layout .data-table tbody tr:hover,
+  .app-layout .report-table tbody tr:hover {
+    background: color-mix(in srgb, var(--admin-green-soft) 50%, var(--admin-panel));
+  }
+
+  .app-layout .data-table tbody tr:hover td:first-child,
+  .app-layout .report-table tbody tr:hover td:first-child {
+    box-shadow: none;
+  }
+
+  /* Hide drag handles on mobile card layout */
+  .app-layout .feature-drag-handle {
+    display: none;
+  }
+}
+
+/* Mobile browsers can retain :hover after a tap. That was the unexplained
+   pale-green unsettled card visible in the supplied phone captures. Keep the
+   hover affordance for a mouse, but return coarse touch screens to neutral. */
+@media (hover: none) and (pointer: coarse) {
+  .app-layout .unpaid-table tbody tr:hover {
+    background: var(--admin-panel);
+    border-color: var(--admin-line);
+    box-shadow: var(--admin-shadow-soft);
+  }
+}
+
+@media (max-width: 900px) {
+  .app-layout .table-container:has(.data-table--wide),
+  .app-layout .table-container:has(.report-table--wide) {
+    overflow-x: visible;
+  }
+
+  .app-layout .data-table--wide tbody tr,
+  .app-layout .report-table--wide tbody tr {
+    background: var(--admin-panel);
+    border-color: var(--admin-line);
+    box-shadow: var(--admin-shadow-soft);
+  }
+
+  .app-layout .data-table--wide td[data-label]::before,
+  .app-layout .report-table--wide td[data-label]::before {
+    color: var(--admin-muted);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+
+  .app-layout .data-table--wide td:first-child,
+  .app-layout .report-table--wide td:first-child {
+    border-bottom-color: var(--admin-line);
+  }
+
+  .app-layout .data-table--wide td[data-label="Action"],
+  .app-layout .report-table--wide td[data-label="Action"],
+  .app-layout .data-table--wide td[data-label="Actions"],
+  .app-layout .report-table--wide td[data-label="Actions"] {
+    border-top-color: var(--admin-line);
+  }
+
+  .app-layout .data-table--wide tfoot tr,
+  .app-layout .report-table--wide tfoot tr {
+    background: color-mix(in srgb, var(--admin-green-soft) 55%, var(--admin-panel));
+    border-color: var(--admin-line);
+  }
+
+  .app-layout .data-table--wide tbody tr:hover,
+  .app-layout .report-table--wide tbody tr:hover {
+    background: color-mix(in srgb, var(--admin-green-soft) 50%, var(--admin-panel));
+  }
+
+  .app-layout .data-table--wide tbody tr:hover td:first-child,
+  .app-layout .report-table--wide tbody tr:hover td:first-child {
+    box-shadow: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .app-layout .page-content {
+    padding: 14px;
+  }
+
+  .app-layout .admin-page-title {
+    font-size: var(--text-24);
+  }
+
+  .app-layout .card-body {
+    padding: 18px;
+  }
+
+  .app-layout .stat-card {
+    min-height: 96px;
+  }
+}
+
+/* ── Admin Payment History Table ───────────────────────────────────────── */
+/* The table itself is a plain `.data-table` in a `.table-container`, exactly
+   like every other admin table — header treatment, cell padding, row hover and
+   the ≤820px card conversion all come from the shared rules above. It used to
+   carry its own wrapper border, thead background, tighter padding and a
+   duplicate mobile block, which is what made it read as a different component.
+   Only the genuinely payment-specific cells are styled here. */
+
+.app-layout .admin-payment-table .payment-ref-cell {
+  color: var(--text-secondary);
+}
+
+.app-layout .admin-payment-table .receipt-link {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+/* Copy-to-clipboard reference button */
+.app-layout .payment-ref-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--bg-secondary, #f7f7f8);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+  line-height: 1.4;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.app-layout .payment-ref-copy-btn:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--primary);
+  color: var(--primary-text-strong);
+}
+.app-layout .payment-ref-copy-btn:hover svg { opacity: 1; }
+.app-layout .payment-ref-copy-btn:active {
+  transform: scale(0.97);
+}
+
+/* Auto (GCash) badge */
+.app-layout .payment-auto-badge {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+
+.topbar-command-kbd {
+  font-size: var(--text-12);
+  font-weight: 600;
+  background: var(--bg-secondary);
+  padding: 1px 5px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border-light);
+  font-family: inherit;
+  color: var(--text-tertiary);
+}
+
+/* ── Combined Sales & Reports page — section switcher ── */
+.sales-reports-switcher {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 20px;
+  padding: 4px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  width: fit-content;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.sales-reports-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 8px 18px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--text-14);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+  white-space: nowrap;
+  font-family: var(--font-sans);
+}
+
+.sales-reports-tab:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.sales-reports-tab.active {
+  background: var(--surface);
+  color: var(--primary-text);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+
+[data-theme="dark"] .sales-reports-tab.active {
+  background: #10B981;
+  color: #0F172A;
+}
+
+@media (max-width: 480px) {
+  .sales-reports-switcher {
+    flex-wrap: wrap;
+    width: 100%;
+    overflow-x: visible;
+  }
+  .sales-reports-tab {
+    flex: 1 1 calc(50% - 6px);
+    justify-content: center;
+    min-width: 0;
+    white-space: normal;
+    text-align: center;
+  }
+}
+
+/* Sidebar account menu: solid panel. mobile-performance.css turns off
+   backdrop blur on phones, which left the glass panel see-through over the
+   nav items behind it. */
+.app-layout .sidebar-profile-dropdown {
+  background: var(--surface);
+}
+
+@media (max-width: 1023px), (hover: none) {
+  .app-layout .sidebar-profile-dropdown-item { min-height: 44px; }
+}
+
+/* Admin Profile, Change Email and Change Password reuse customer-profile.css
+   and customer-account.css, which read the --customer-* tokens. Only
+   .customer-layout-v2 corrects those for dark mode (the tokens.css dark alias
+   for --customer-green-dark is #064E3B, near-invisible on a dark surface),
+   so inside the admin shell they follow the admin palette above. */
+.app-layout .customer-profile-page,
+.app-layout .customer-account-page {
+  --customer-green: var(--admin-green);
+  --customer-green-dark: var(--admin-green-dark);
+  --customer-green-soft: var(--admin-green-soft);
+  --customer-green-glow: var(--admin-green-glow);
+  --customer-ink: var(--admin-ink);
+  --customer-muted: var(--admin-muted);
+  --customer-panel: var(--admin-panel);
+  --customer-panel-solid: var(--admin-panel-solid);
+  --customer-line: var(--admin-line);
+  --customer-shadow: var(--admin-shadow);
+  --customer-shadow-soft: var(--admin-shadow-soft);
+}
+
+/* The sidebar's color-mix() gradient starts ~3.5% transparent in dark mode
+   (it mixes in the translucent --admin-green-soft), and the background
+   shorthand leaves no colour behind it, so page text showed faintly through
+   the phone drawer. A solid colour under the gradient closes that. */
+.app-layout .sidebar {
+  background-color: var(--admin-panel-solid);
+}
+
+/* ── Sidebar: collapsed rail, short screens ──────────────────────────────
+   Layer note: this file is layer(refresh), later than layout and
+   responsive, so these beat layout-admin.css and responsive.css regardless
+   of specificity. viewport-hardening.css (a later layer) still sets the
+   collapse button's top for the iOS safe area. */
+
+/* Collapse button now sits outside the <aside> (which clips overflow), so
+   it is positioned against the viewport and follows the sidebar's width. */
+.app-layout .sidebar-collapse-btn {
+  position: fixed;
+  right: auto;
+  left: calc(var(--sidebar-width) - 14px);
+  z-index: calc(var(--z-overlay) + 2);
+  transition:
+    left 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    background 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.app-layout.sidebar-collapsed .sidebar-collapse-btn {
+  left: calc(var(--sidebar-collapsed-width) - 14px);
+}
+
+.app-layout.sidebar-collapsed .sidebar-collapse-btn svg {
+  transform: rotate(180deg);
+}
+
+/* The old CSS tooltips could never be seen (clipped by the nav) and still
+   added off-screen overflow; Sidebar.jsx renders .sidebar-rail-tooltip. */
+.app-layout .sidebar.collapsed .sidebar-link::after {
+  display: none;
+}
+
+.app-layout .sidebar-rail-tooltip {
+  position: fixed;
+  z-index: calc(var(--z-overlay) + 3);
+  transform: translateY(-50%);
+  padding: 7px 12px;
+  border: 1px solid var(--admin-line);
+  border-radius: var(--radius-sm);
+  background: var(--admin-panel-solid);
+  color: var(--admin-ink);
+  box-shadow: var(--shadow-lg);
+  font-size: var(--text-13);
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: fadeIn 0.12s ease;
+}
+
+/* Unread dot on the collapsed desktop rail, where the count badge is
+   squeezed to zero width. Hidden everywhere else, including the phone
+   drawer, which shows the full badge. */
+.app-layout .sidebar-link > span.sidebar-rail-dot {
+  display: none;
+}
+
+@media (min-width: 1025px) {
+  .app-layout .sidebar.collapsed .sidebar-link > span.sidebar-rail-dot {
+    display: block;
+    position: absolute;
+    top: 9px;
+    left: 50%;
+    width: 10px;
+    height: 10px;
+    margin-left: 4px;
+    overflow: visible;
+    opacity: 1;
+    border: 2px solid var(--admin-panel-solid);
+    border-radius: 50%;
+    background: #DC2626;
+  }
+}
+
+/* Short desktop screens: tighten the list so all 13 items fit without
+   scrolling on common laptop heights (1366x768 leaves ~650px for the page).
+   Phones and tablets keep 44px+ touch targets; they scroll instead. */
+@media (min-width: 1025px) and (max-height: 900px) {
+  .app-layout .sidebar-brand { min-height: 68px; padding-top: 16px; padding-bottom: 16px; }
+  .app-layout .sidebar-link { min-height: 40px; padding-top: 8px; padding-bottom: 8px; }
+  .app-layout .sidebar:not(.collapsed) .sidebar-section-label { padding-top: 12px; padding-bottom: 6px; }
+  .app-layout .sidebar-footer { padding-top: 8px; padding-bottom: 8px; }
+}
+
+@media (min-width: 1025px) and (max-height: 800px) {
+  .app-layout .sidebar-brand { min-height: 60px; padding-top: 12px; padding-bottom: 12px; }
+  .app-layout .sidebar-link { min-height: 32px; padding-top: 6px; padding-bottom: 6px; margin-bottom: 0; }
+  .app-layout .sidebar:not(.collapsed) .sidebar-section-label { padding-top: 8px; padding-bottom: 4px; }
+  .app-layout .sidebar-profile-btn { min-height: 44px; }
+}
+
+/* Scroll cue: a fade above the account button while nav items are hidden
+   below it (Sidebar.jsx toggles .nav-has-more). Solid-colour stops rather
+   than "transparent", which older Safari blends through grey. */
+.app-layout .sidebar-footer {
+  position: relative;
+}
+
+.app-layout .sidebar-footer::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: 40px;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0), #FFFFFF);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+[data-theme="dark"] .app-layout .sidebar-footer::before {
+  background: linear-gradient(to bottom, rgba(30, 41, 59, 0), #1E293B);
+}
+
+.app-layout .sidebar.nav-has-more .sidebar-footer::before {
+  opacity: 1;
+}
