@@ -12,9 +12,14 @@
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
+-- Ensure required columns exist
+ALTER TABLE public.company_information ADD COLUMN IF NOT EXISTS service_areas JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.company_information ADD COLUMN IF NOT EXISTS default_capacity INTEGER DEFAULT 1000;
+ALTER TABLE public.announcements ADD COLUMN IF NOT EXISTS cta_label TEXT;
+ALTER TABLE public.announcements ADD COLUMN IF NOT EXISTS cta_url TEXT;
+ALTER TABLE public.announcements ADD COLUMN IF NOT EXISTS audience TEXT DEFAULT 'public';
+
 -- 1. ADMIN USERS (auth.users)
--- Note: GoTrue requires non-null empty strings ('') for all token fields,
--- otherwise it throws "Database error querying schema" (converting NULL to string is unsupported).
 
 INSERT INTO auth.users (
   id, instance_id, email, encrypted_password, email_confirmed_at,
@@ -105,6 +110,7 @@ SET
   email_change = COALESCE(email_change, ''),
   email_change_token_new = COALESCE(email_change_token_new, ''),
   email_change_token_current = COALESCE(email_change_token_current, ''),
+  phone = COALESCE(phone, ''),
   phone_change = COALESCE(phone_change, ''),
   phone_change_token = COALESCE(phone_change_token, ''),
   reauthentication_token = COALESCE(reauthentication_token, ''),
@@ -179,7 +185,7 @@ INSERT INTO public.company_information (
   id, name, short_description, long_description,
   banner_image_url, banner_title, banner_description, banner_button_text, banner_button_link,
   email, facebook, smart_phone, globe_phone, manila_address, bohol_address,
-  default_price_per_kg, default_capacity, features, service_areas
+  default_price_per_kg, default_capacity, features, service_areas, coverage
 )
 VALUES (
   '00000000-0000-0000-0000-000000000001', 'CargoExpress PH', 'Fast & Reliable Cargo Delivery connecting Bohol and Manila with safe, affordable cargo shipping.', 'Sa CargoExpress PH, alam namin na ang bawat padala ay may mahalagang kahulugan—mga gamit para sa pamilya, pangangailangan sa negosyo, o mga bagay na importante sa inyong pang-araw-araw na pamumuhay. Kaya mahalaga sa amin ang tiwalang ibinibigay ninyo sa bawat booking.
@@ -192,7 +198,7 @@ Mula sa pickup hanggang delivery, nandito kami para tumulong at sumagot sa inyon
   'ship2doorofficial@gmail.com', 'https://www.facebook.com/mscargodeliveryservice', '09212528208', '09275050460',
   'Dasma, Cavite', 'Batuan, Bohol',
   70, 1000,
-  '[{"id":"9496ebcf-045a-4aae-ae0a-8036fccb6254","icon":"Package","title":"Door to Door Delivery","description":"We pick up and deliver the package door to door","display_order":0},{"id":"4ef1ff9b-c238-4640-90cc-eec46fb0971f","icon":"Truck","title":"Fast and Reliable","description":"We deliver immediately after we arrived in hub.","display_order":0},{"id":"21c88834-7bd0-4725-a13d-8dd83e068f24","icon":"Handshake","title":"Affordable Per Kilo Rates","description":"Get fair, transparent, and economical shipping rates calculated accurately based on the weight of your cargo.","display_order":0}]'::jsonb, NULL
+  '[{"id":"9496ebcf-045a-4aae-ae0a-8036fccb6254","icon":"Package","title":"Door to Door Delivery","description":"We pick up and deliver the package door to door","display_order":0},{"id":"4ef1ff9b-c238-4640-90cc-eec46fb0971f","icon":"Truck","title":"Fast and Reliable","description":"We deliver immediately after we arrived in hub.","display_order":0},{"id":"21c88834-7bd0-4725-a13d-8dd83e068f24","icon":"Handshake","title":"Affordable Per Kilo Rates","description":"Get fair, transparent, and economical shipping rates calculated accurately based on the weight of your cargo.","display_order":0}]'::jsonb, NULL, NULL
 )
 ON CONFLICT (id) DO UPDATE SET
   name = EXCLUDED.name,
@@ -205,6 +211,7 @@ ON CONFLICT (id) DO UPDATE SET
   manila_address = EXCLUDED.manila_address,
   bohol_address = EXCLUDED.bohol_address,
   service_areas = EXCLUDED.service_areas,
+  coverage = EXCLUDED.coverage,
   features = EXCLUDED.features;
 
 -- 4. TRIPS
@@ -229,6 +236,7 @@ ON CONFLICT (id) DO UPDATE SET
   arrival_date = EXCLUDED.arrival_date;
 
 -- 5. ORDERS (BOOKINGS)
+ALTER TABLE public.orders DISABLE TRIGGER ALL;
 
 INSERT INTO public.orders (
   id, user_id, trip_id, origin, destination, tracking_number,
@@ -289,6 +297,7 @@ ON CONFLICT (id) DO UPDATE SET
   status = EXCLUDED.status,
   amount_paid = EXCLUDED.amount_paid,
   actual_weight = EXCLUDED.actual_weight;
+ALTER TABLE public.orders ENABLE TRIGGER ALL;
 
 -- 6. ORDER STATUS EVENTS
 
