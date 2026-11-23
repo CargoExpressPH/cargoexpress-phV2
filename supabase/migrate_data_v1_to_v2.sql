@@ -239,7 +239,12 @@ ON CONFLICT (id) DO UPDATE SET
   arrival_date = EXCLUDED.arrival_date;
 
 -- 5. ORDERS (BOOKINGS)
-ALTER TABLE public.orders DISABLE TRIGGER ALL;
+DO $$
+BEGIN
+  ALTER TABLE public.orders DISABLE TRIGGER USER;
+EXCEPTION WHEN OTHERS THEN
+  NULL;
+END $$;
 
 INSERT INTO public.orders (
   id, user_id, trip_id, origin, destination, tracking_number,
@@ -269,7 +274,10 @@ ON CONFLICT (id) DO UPDATE SET
   tracking_number = EXCLUDED.tracking_number,
   status = EXCLUDED.status,
   amount_paid = EXCLUDED.amount_paid,
-  actual_weight = EXCLUDED.actual_weight;
+  actual_weight = EXCLUDED.actual_weight,
+  payment_status = EXCLUDED.payment_status,
+  payment_method = EXCLUDED.payment_method,
+  pickup_photos = EXCLUDED.pickup_photos;
 
 INSERT INTO public.orders (
   id, user_id, trip_id, origin, destination, tracking_number,
@@ -299,8 +307,17 @@ ON CONFLICT (id) DO UPDATE SET
   tracking_number = EXCLUDED.tracking_number,
   status = EXCLUDED.status,
   amount_paid = EXCLUDED.amount_paid,
-  actual_weight = EXCLUDED.actual_weight;
-ALTER TABLE public.orders ENABLE TRIGGER ALL;
+  actual_weight = EXCLUDED.actual_weight,
+  payment_status = EXCLUDED.payment_status,
+  payment_method = EXCLUDED.payment_method,
+  pickup_photos = EXCLUDED.pickup_photos;
+
+DO $$
+BEGIN
+  ALTER TABLE public.orders ENABLE TRIGGER USER;
+EXCEPTION WHEN OTHERS THEN
+  NULL;
+END $$;
 
 -- 6. ORDER STATUS EVENTS
 
