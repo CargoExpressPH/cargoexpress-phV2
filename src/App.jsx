@@ -146,15 +146,10 @@ const AuthRoute = ({ children }) => {
 const RootRedirect = () => {
   const { user, userProfile, loading } = useAuth();
   if (loading) return <LoadingScreen />;
-  // The installed app (manifest start_url "/") is opened by people who
-  // already have an account, so a guest there goes straight to Login. In a
-  // browser, "/" stays the public home page that search engines index.
-  if (!user) {
-    if (isStandaloneWebApp()) return <Navigate to="/login" replace />;
-    return <PublicShell wide links><LandingPage /></PublicShell>;
+  if (user && userProfile?.role === 'admin') {
+    return <Navigate to="/admin" replace />;
   }
-  if (!userProfile || !userProfile.role) return <Navigate to="/login" replace />;
-  return <Navigate to={userProfile.role === 'admin' ? '/admin' : '/customer'} replace />;
+  return <PublicShell wide links><LandingPage /></PublicShell>;
 };
 
 /** Automatically scrolls to top of page on route changes.
@@ -233,6 +228,7 @@ const router = createBrowserRouter([
 
       // Public (lazy)
       { path: '/track', element: <TrackingPage /> },
+      { path: '/book', element: <Navigate to="/#booking-section" replace /> },
       { path: '/about', element: <AboutPage /> },
       { path: '/terms', element: <Suspense fallback={<PageLoader />}><TermsPage /></Suspense> },
       { path: '/privacy', element: <Suspense fallback={<PageLoader />}><PrivacyPage /></Suspense> },
@@ -243,11 +239,7 @@ const router = createBrowserRouter([
       { path: '/unsubscribe', element: <Suspense fallback={<PageLoader />}><UnsubscribePage /></Suspense> },
 
       // Public — guest-accessible pages that reuse a customer page's
-      // component (no auth-dependent logic in either) under a minimal
-      // shared shell instead of the logged-in CustomerLayout. "Book a
-      // Cargo" deliberately isn't here: it stays behind ProtectedRoute,
-      // which now redirects to /login with state.from so the guard is
-      // enforced once, centrally, instead of per button/link.
+      // component under a minimal shared shell.
       {
         element: <PublicShell links />,
         children: [
@@ -256,9 +248,9 @@ const router = createBrowserRouter([
         ],
       },
 
-      // Auth (eager — first thing users see)
+      // Auth
       { path: '/login', element: <AuthRoute><LoginPage /></AuthRoute> },
-      { path: '/register', element: <AuthRoute><RegisterPage /></AuthRoute> },
+      { path: '/register', element: <Navigate to="/#booking-section" replace /> },
       { path: '/forgot-password', element: <AuthRoute><ForgotPasswordPage /></AuthRoute> },
       { path: '/reset-password', element: <ResetPasswordPage /> },
 

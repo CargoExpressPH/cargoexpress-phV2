@@ -47,7 +47,7 @@ const FeedbackPage = () => {
 
   const filteredFeedback = feedback.filter(f => {
     const searchMatch = 
-      (f.profiles?.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (f.profiles?.name || f.orders?.sender_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (f.message || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (f.orders?.tracking_number || '').toLowerCase().includes(searchTerm.toLowerCase());
       
@@ -119,9 +119,9 @@ const FeedbackPage = () => {
             <div key={fb.id} className="card hover-lift flex flex-col" style={{ padding: 20 }}>
               <div className="flex justify-between items-start" style={{marginBottom: 16}}>
                 <div>
-                  <div style={{ fontWeight: 700, fontSize: 'var(--text-18)' }}>{fb.profiles?.name || 'Unknown Customer'}</div>
+                  <div style={{ fontWeight: 700, fontSize: 'var(--text-18)' }}>{fb.profiles?.name || fb.orders?.sender_name || 'Guest Customer'}</div>
                   <div className="text-tertiary" style={{fontSize: 'var(--text-14)'}}>
-                    {fb.profiles?.email} • <span className="nowrap">Order {fb.orders?.tracking_number}</span>
+                    {fb.profiles?.email ? `${fb.profiles.email} • ` : ''}<span className="nowrap">Order {fb.orders?.tracking_number || 'N/A'}</span>
                   </div>
                 </div>
                 

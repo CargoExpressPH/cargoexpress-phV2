@@ -129,7 +129,7 @@ CREATE TABLE IF NOT EXISTS conversations (
 CREATE TABLE IF NOT EXISTS customer_feedback (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   order_id UUID NOT NULL UNIQUE REFERENCES orders(id) ON DELETE CASCADE,
-  customer_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  customer_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
   rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
   message TEXT NOT NULL,
   is_hidden BOOLEAN NOT NULL DEFAULT false,
@@ -202,7 +202,7 @@ CREATE TABLE IF NOT EXISTS order_status_events (
 -- ===================== 13. ORDERS =====================
 CREATE TABLE IF NOT EXISTS orders (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
   trip_id UUID REFERENCES trips(id) ON DELETE SET NULL,
   origin VARCHAR(100) DEFAULT NULL::character varying,
   destination VARCHAR(100) DEFAULT NULL::character varying,
@@ -2230,7 +2230,7 @@ AS $function$
 DECLARE
   trip_row public.trips%ROWTYPE;
 BEGIN
-  IF auth.uid() IS NOT NULL AND NEW.user_id <> auth.uid() AND NOT public.is_admin() THEN
+  IF auth.uid() IS NOT NULL AND NEW.user_id IS NOT NULL AND NEW.user_id <> auth.uid() AND NOT public.is_admin() THEN
     RAISE EXCEPTION 'Cannot create orders for another user';
   END IF;
 
@@ -3120,13 +3120,30 @@ $function$
 
 
 
+DROP FUNCTION IF EXISTS public.track_order_public(text);
 CREATE OR REPLACE FUNCTION public.track_order_public(p_tracking_number text)
- RETURNS TABLE(tracking_number character varying, status character varying, sender_name text, receiver_name text, origin character varying, destination character varying, package_description text, actual_weight numeric, estimated_delivery timestamp with time zone, created_at timestamp with time zone, updated_at timestamp with time zone)
+ RETURNS TABLE(
+   id uuid,
+   tracking_number character varying,
+   status character varying,
+   sender_name text,
+   receiver_name text,
+   origin character varying,
+   destination character varying,
+   package_description text,
+   actual_weight numeric,
+   package_quantity integer,
+   estimated_delivery timestamp with time zone,
+   created_at timestamp with time zone,
+   updated_at timestamp with time zone,
+   has_feedback boolean
+ )
  LANGUAGE sql
  SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$
   SELECT
+    o.id,
     o.tracking_number,
     o.status,
     public.mask_name(o.sender_name)   AS sender_name,
@@ -3139,14 +3156,16 @@ AS $function$
       ELSE o.package_description
     END                               AS package_description,
     o.actual_weight,
+    o.package_quantity,
     t.arrival_date                    AS estimated_delivery,
     o.created_at,
-    o.updated_at
+    o.updated_at,
+    EXISTS(SELECT 1 FROM public.customer_feedback cf WHERE cf.order_id = o.id) AS has_feedback
   FROM public.orders o
   LEFT JOIN public.trips t ON t.id = o.trip_id
   WHERE o.tracking_number = UPPER(TRIM(p_tracking_number))
   LIMIT 1;
-$function$
+$function$;
 
 
 
@@ -3825,18 +3844,25 @@ CREATE POLICY "Admins can manage all feedback" ON public.customer_feedback
   WHERE ((profiles.id = auth.uid()) AND ((profiles.role)::text = 'admin'::text)))));
 
 DROP POLICY IF EXISTS "Customers can insert own delivered-order feedback" ON public.customer_feedback;
-CREATE POLICY "Customers can insert own delivered-order feedback" ON public.customer_feedback
+DROP POLICY IF EXISTS "Public can insert delivered order feedback" ON public.customer_feedback;
+CREATE POLICY "Public can insert delivered order feedback" ON public.customer_feedback
   FOR INSERT
-  TO authenticated
-  WITH CHECK (((auth.uid() = customer_id) AND (EXISTS ( SELECT 1
-   FROM orders o
-  WHERE ((o.id = customer_feedback.order_id) AND (o.user_id = auth.uid()) AND ((o.status)::text = 'Delivered'::text))))));
+  TO anon, authenticated
+  WITH CHECK (
+    ((customer_id = auth.uid()) OR (customer_id IS NULL))
+    AND EXISTS (
+      SELECT 1 FROM orders o
+      WHERE o.id = customer_feedback.order_id
+        AND (o.status)::text = 'Delivered'::text
+    )
+  );
 
 DROP POLICY IF EXISTS "Customers can read own feedback" ON public.customer_feedback;
-CREATE POLICY "Customers can read own feedback" ON public.customer_feedback
+DROP POLICY IF EXISTS "Public can read feedback" ON public.customer_feedback;
+CREATE POLICY "Public can read feedback" ON public.customer_feedback
   FOR SELECT
-  TO authenticated
-  USING ((auth.uid() = customer_id));
+  TO anon, authenticated
+  USING (is_hidden = false OR (customer_id = auth.uid()) OR is_admin());
 
 ALTER TABLE public.legal_consents ENABLE ROW LEVEL SECURITY;
 
@@ -3933,10 +3959,11 @@ CREATE POLICY "Admins can update orders" ON public.orders
   WITH CHECK (is_admin());
 
 DROP POLICY IF EXISTS "Users can create own orders" ON public.orders;
-CREATE POLICY "Users can create own orders" ON public.orders
+DROP POLICY IF EXISTS "Anyone can create orders" ON public.orders;
+CREATE POLICY "Anyone can create orders" ON public.orders
   FOR INSERT
   TO public
-  WITH CHECK (((user_id = auth.uid()) AND ((status)::text = ANY ((ARRAY['Pending'::character varying, 'Assigned'::character varying])::text[])) AND (actual_weight IS NULL) AND (payment_method IS NULL) AND ((payment_status)::text = 'unpaid'::text) AND (amount_paid = (0)::numeric) AND (pickup_photos = '[]'::jsonb) AND (delivery_photos = '[]'::jsonb)));
+  WITH CHECK ((((user_id = auth.uid()) OR (user_id IS NULL)) AND ((status)::text = ANY ((ARRAY['Pending'::character varying, 'Pending Review'::character varying, 'Assigned'::character varying])::text[])) AND (actual_weight IS NULL) AND (payment_method IS NULL) AND ((payment_status)::text = 'unpaid'::text) AND (amount_paid = (0)::numeric) AND (pickup_photos = '[]'::jsonb) AND (delivery_photos = '[]'::jsonb)));
 
 DROP POLICY IF EXISTS "Users can view own orders" ON public.orders;
 CREATE POLICY "Users can view own orders" ON public.orders

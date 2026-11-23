@@ -82,7 +82,7 @@ const Footer = ({ companyName, info, systemStatus, systemStatusLabel }) => {
           <div className="about-footer-links">
             <Link to="/track" className="about-footer-link">Track Your Cargo</Link>
             <Link to="/schedules" className="about-footer-link">View Trip Schedules</Link>
-            <Link to="/customer/book" className="about-footer-link">Book a Cargo</Link>
+            <Link to="/book" className="about-footer-link">Book a Cargo</Link>
             <Link to="/faq" className="about-footer-link">FAQs</Link>
           </div>
         </div>

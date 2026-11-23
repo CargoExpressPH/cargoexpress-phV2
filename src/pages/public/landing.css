@@ -556,22 +556,165 @@
   .lx-more { grid-template-columns: minmax(0, 1fr); }
 }
 
-@media (max-width: 640px) {
-  .lx-hero { border-radius: 18px; }
-  .lx-hero-inner { padding: 36px 18px 18px; gap: 28px; }
-  .lx-hero-copy { gap: 16px; }
-  .lx-board { border-radius: 14px; }
-  .lx-board header,
-  .lx-board-rows li,
-  .lx-board-note,
-  .lx-board-all { padding-left: 16px; padding-right: 16px; }
-  .lx-steps { grid-template-columns: minmax(0, 1fr); gap: 24px; }
-  .lx-steps li {
-    grid-template-columns: 40px minmax(0, 1fr);
-    column-gap: 8px;
-    row-gap: 6px;
-  }
-  .lx-step-number { grid-row: span 2; padding-top: 2px; }
-  .lx-cta { flex-direction: column; align-items: stretch; }
-  .lx-cta-actions .lx-btn { flex: 1 1 100%; }
+/* -- V2 Enhanced Public Landing Styles ------------------------------------ */
+
+.lx-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 6px;
+  align-items: center;
 }
+
+.lx-btn-messenger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 46px;
+  padding: 0 20px;
+  background: #1877f2;
+  color: #fff;
+  border-radius: 12px;
+  font-size: .9375rem;
+  font-weight: 700;
+  text-decoration: none;
+  border: none;
+  cursor: pointer;
+  transition: transform .15s ease, background-color .15s ease, box-shadow .15s ease;
+  box-shadow: 0 4px 14px rgba(24, 119, 242, 0.35);
+}
+
+.lx-btn-messenger:hover {
+  background: #0d6efd;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(24, 119, 242, 0.45);
+  color: #fff;
+}
+
+.lx-schedules-overview {
+  display: grid;
+  gap: 20px;
+}
+
+.lx-schedules-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+.lx-trip-overview-card {
+  background: var(--bg-primary, #fff);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: var(--radius-lg, 14px);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.03);
+}
+
+.lx-trip-overview-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.07);
+  border-color: var(--primary, #0f766e);
+}
+
+.lx-trip-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.lx-trip-route-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.lx-trip-number-tag {
+  font-size: 0.75rem;
+  font-family: monospace;
+  font-weight: 700;
+  padding: 4px 8px;
+  background: var(--bg-secondary, #f1f5f9);
+  color: var(--text-secondary, #475569);
+  border-radius: 6px;
+  border: 1px solid var(--border, #cbd5e1);
+}
+
+.lx-trip-meta-list {
+  display: grid;
+  gap: 8px;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.lx-trip-meta-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lx-trip-badges-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--border, #e2e8f0);
+}
+
+.lx-badge-capacity {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  background: var(--info-bg, #eff6ff);
+  color: var(--info-text, #1e40af);
+  font-size: 0.825rem;
+  font-weight: 600;
+}
+
+.lx-badge-rate {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  background: var(--success-bg, #ecfdf5);
+  color: var(--success, #065f46);
+  font-size: 0.825rem;
+  font-weight: 600;
+}
+
+.lx-inquiry-wrapper {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+  gap: clamp(24px, 4vw, 48px);
+  align-items: start;
+}
+
+.lx-connect-card {
+  background: var(--bg-primary, #fff);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: var(--radius-lg, 16px);
+  padding: clamp(24px, 3.5vw, 36px);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.03);
+}
+
+@media (max-width: 900px) {
+  .lx-inquiry-wrapper {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+

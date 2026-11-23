@@ -26,6 +26,7 @@ import { useDashboardPath } from '../../hooks/useDashboardPath';
 const PAGE_LINKS = [
   ['/schedules', 'Trip Schedules'],
   ['/track', 'Track'],
+  ['/book', 'Book Cargo'],
   ['/faq', 'Help'],
   ['/about', 'About'],
 ];
@@ -63,10 +64,7 @@ const PublicShell = ({ children, wide = false, links = false }) => {
               <span><span className="public-shell-dashboard-prefix">Go to </span>Dashboard</span>
             </Link>
           ) : (
-            <>
-              <Link to="/login" className="public-shell-link">Log In</Link>
-              <Link to="/register" className="btn btn-primary btn-sm">Sign Up</Link>
-            </>
+            <Link to="/login" className="btn btn-outline btn-sm">Admin Login</Link>
           )}
         </nav>
       </header>

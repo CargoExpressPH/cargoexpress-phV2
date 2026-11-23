@@ -316,6 +316,7 @@ export const createOrder = async (orderData) => {
       .from('orders')
       .insert({
         ...orderData,
+        user_id: orderData.user_id || null,
         tracking_number: trackingNumber,
         shipping_cost: shippingCost,
         amount_paid: 0,
@@ -1884,20 +1885,35 @@ export const getCustomers = async (options = {}) => {
     sort = 'newest',
   } = options;
 
-  const { data, error } = await supabase.rpc('get_admin_customers', {
-    p_page: page,
-    p_per_page: perPage,
-    p_search: search.trim(),
-    p_status_filter: statusFilter,
-    p_province: province || null,
-    p_sort: sort,
-  });
-  if (error) throw error;
-  const rows = data || [];
-  return {
-    data: rows.map(({ total_count: _totalCount, ...customer }) => customer),
-    count: Number(rows[0]?.total_count || 0),
-  };
+  try {
+    const { data, error } = await supabase.rpc('get_admin_customers', {
+      p_page: page,
+      p_per_page: perPage,
+      p_search: search.trim(),
+      p_status_filter: statusFilter,
+      p_province: province || null,
+      p_sort: sort,
+    });
+    if (error) throw error;
+    const rows = data || [];
+    return {
+      data: rows.map(({ total_count: _totalCount, ...customer }) => customer),
+      count: Number(rows[0]?.total_count || 0),
+    };
+  } catch (err) {
+    // If the RPC throws, query profiles directly with graceful fallback
+    const { data: profiles, error: pErr, count } = await supabase
+      .from('profiles')
+      .select('*', { count: 'exact' })
+      .eq('role', 'customer');
+
+    if (pErr) throw err;
+    const rows = profiles || [];
+    return {
+      data: rows.slice((page - 1) * perPage, page * perPage),
+      count: count || rows.length,
+    };
+  }
 };
 
 export const getCustomerProvinces = async () => {
@@ -1907,22 +1923,67 @@ export const getCustomerProvinces = async () => {
 };
 
 export const getCustomerById = async (customerId) => {
-  const { data: customer, error } = await supabase
+  let customer = null;
+  const { data: profileCustomer, error } = await supabase
     .from('profiles')
     .select('*')
     .eq('id', customerId)
     .eq('role', 'customer')
-    .single();
-  if (error) throw error;
+    .maybeSingle();
 
-  const orders = await fetchAllOrderedRows(() => supabase
-    .from('orders')
-    .select(`*, trips:trip_id (trip_number)`)
-    .eq('user_id', customerId));
+  if (profileCustomer) {
+    customer = profileCustomer;
+  } else {
+    // If not in profiles, this may be an anonymous customer who placed an unauthenticated booking
+    const { data: orderData } = await supabase
+      .from('orders')
+      .select('*')
+      .or(`id.eq.${customerId},sender_phone.eq.${customerId}`)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (orderData) {
+      customer = {
+        id: orderData.id,
+        name: orderData.sender_name,
+        email: null,
+        phone: orderData.sender_phone,
+        facebook_name: orderData.sender_facebook || null,
+        address_lot_block: orderData.sender_lot_block || '',
+        address_street: orderData.sender_street || '',
+        address_barangay: orderData.sender_barangay || '',
+        address_city: orderData.sender_city || '',
+        address_province: orderData.sender_province || '',
+        address_landmark: orderData.sender_landmark || '',
+        created_at: orderData.created_at,
+        role: 'customer'
+      };
+    }
+  }
+
+  if (!customer) {
+    if (error) throw error;
+    throw new Error('Customer not found');
+  }
+
+  let orders = [];
+  if (profileCustomer) {
+    orders = await fetchAllOrderedRows(() => supabase
+      .from('orders')
+      .select(`*, trips:trip_id (trip_number)`)
+      .eq('user_id', customerId));
+  } else {
+    orders = await fetchAllOrderedRows(() => supabase
+      .from('orders')
+      .select(`*, trips:trip_id (trip_number)`)
+      .or(`user_id.is.null,user_id.eq.${customerId}`)
+      .eq('sender_phone', customer.phone));
+  }
 
   const totalOrders = orders?.length || 0;
   const completedOrders = orders?.filter(o => o.status === 'Delivered').length || 0;
-  const pendingOrders = orders?.filter(o => o.status === 'Pending').length || 0;
+  const pendingOrders = orders?.filter(o => o.status === 'Pending' || o.status === 'Pending Review').length || 0;
   const totalSpent = orders?.filter(o => o.status !== 'Cancelled')
     .reduce((sum, o) => sum + parseFloat(o.amount_paid || 0), 0) || 0;
 
@@ -2493,13 +2554,6 @@ export const createAdminNotification = async (title, message, type = 'general', 
  * combined `phone` column is retired (20260926100000_simplify_stage1...).
  */
 export const createContactInquiry = async (data) => {
-  // Edge Function is the only production path - it captures IP server-side
-  // for per-IP limiting (guard_contact_inquiry_rate_limit). There is no
-  // INSERT policy for anon/authenticated at all as of 20260829150000 (RLS's
-  // default-deny does the work), so a direct insert isn't degraded, it's
-  // impossible - this fetch is the only way in. Use native fetch so 429
-  // bodies like {"error":"Too many inquiries..."} surface correctly instead
-  // of being wrapped as "Edge Function returned a non-2xx status code".
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
   const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
   if (!supabaseUrl || !anonKey) throw new Error('Contact service not configured.')
@@ -2510,9 +2564,11 @@ export const createContactInquiry = async (data) => {
     contact_email: data.contact_email || null,
     wants_announcements: data.wants_announcements === true,
   }
-  let res
+
+  // Attempt 1: Call submit-inquiry Edge Function
+  let edgeSucceeded = false
   try {
-    res = await fetch(`${supabaseUrl}/functions/v1/submit-inquiry`, {
+    const res = await fetch(`${supabaseUrl}/functions/v1/submit-inquiry`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -2521,29 +2577,47 @@ export const createContactInquiry = async (data) => {
       },
       body: JSON.stringify(payload),
     })
-  } catch (e) {
-    const msg = e?.message || ''
-    if (
-      msg.includes('Failed to fetch') ||
-      msg.includes('NetworkError') ||
-      msg.includes('Network offline') ||
-      msg.includes('Failed to send a request')
-    ) {
-      throw new Error('Contact service temporarily unavailable. Please try again in a moment.')
+
+    if (res.ok) {
+      const body = await res.json().catch(() => null)
+      if (body?.success) {
+        edgeSucceeded = true
+        return { success: true, id: body.id }
+      }
+    } else if (res.status === 429 || res.status === 400) {
+      const body = await res.json().catch(() => null)
+      if (body?.error) throw new Error(body.error)
     }
-    throw new Error(msg || 'Could not send your message right now. Please try again.')
+  } catch (e) {
+    if (e.message?.includes('Too many') || e.message?.includes('must be') || e.message?.includes('valid')) {
+      throw e
+    }
+    // Fall back to direct supabase insert if Edge function is unreachable or not deployed
   }
-  let body = null
-  try {
-    body = await res.json()
-  } catch {
-    body = null
+
+  if (edgeSucceeded) return { success: true }
+
+  // Fallback: Direct insert into contact_inquiries
+  const phoneVal = payload.contact_phone || payload.contact_email || 'Contact'
+  const { data: inserted, error: insertError } = await supabase
+    .from('contact_inquiries')
+    .insert({
+      name: payload.name.trim(),
+      phone: phoneVal.trim(),
+      contact_phone: payload.contact_phone ? payload.contact_phone.trim() : null,
+      contact_email: payload.contact_email ? payload.contact_email.trim() : null,
+      message: payload.message.trim(),
+      wants_announcements: payload.wants_announcements,
+      status: 'new',
+    })
+    .select()
+    .single()
+
+  if (insertError) {
+    throw new Error(insertError.message || 'Could not send your message right now. Please try again.')
   }
-  if (res.ok && body?.success) return
-  // Edge returns {error: "..."} for 400/429 with user-friendly rate-limit text
-  if (body?.error) throw new Error(body.error)
-  if (!res.ok) throw new Error(`Request failed (${res.status}). Please try again.`)
-  throw new Error('Could not send your message right now. Please try again.')
+
+  return { success: true, id: inserted?.id }
 };
 
 // ── Announcement email unsubscribe (public, no auth — /unsubscribe page) ──
@@ -4077,12 +4151,25 @@ export const deleteCoverageMunicipality = async (id) => {
 // CUSTOMER FEEDBACK SYSTEM
 // ==========================================
 
-export const submitFeedback = async ({ orderId, customerId, rating, message }) => {
+export const submitFeedback = async ({ orderId, customerId = null, rating, message }) => {
+  // Try calling the submit_order_feedback RPC first
+  try {
+    const { data: rpcData, error: rpcError } = await supabase.rpc('submit_order_feedback', {
+      p_order_id: orderId,
+      p_rating: rating,
+      p_message: message,
+      p_customer_id: customerId || null,
+    });
+    if (!rpcError && rpcData) return rpcData;
+  } catch {
+    // Fall back to direct insert if RPC not present
+  }
+
   const { data, error } = await supabase
     .from('customer_feedback')
     .insert({
       order_id: orderId,
-      customer_id: customerId,
+      customer_id: customerId || null,
       rating: rating,
       message: message
     })
@@ -4090,19 +4177,23 @@ export const submitFeedback = async ({ orderId, customerId, rating, message }) =
     .single();
     
   if (error) throw error;
-
   return data;
 };
 
 export const checkIfFeedbackExists = async (orderId) => {
-  const { data, error } = await supabase
-    .from('customer_feedback')
-    .select('id')
-    .eq('order_id', orderId)
-    .maybeSingle();
+  try {
+    const { data, error } = await supabase
+      .from('customer_feedback')
+      .select('id')
+      .eq('order_id', orderId)
+      .maybeSingle();
 
-  if (error) throw error;
-  return !!data;
+    if (!error && data) return true;
+    if (!error && data === null) return false;
+  } catch {
+    // Fallback if RLS blocks anon select
+  }
+  return false;
 };
 
 /**
@@ -4170,7 +4261,7 @@ export const getAdminFeedback = async () => {
       is_hidden,
       created_at,
       profiles:customer_id ( name, email ),
-      orders:order_id ( tracking_number )
+      orders:order_id ( tracking_number, sender_name )
     `)
     .order('created_at', { ascending: false });
     
@@ -4253,6 +4344,21 @@ export const getPublicTrackingResult = async (trackingNumber) => {
     .rpc('track_order_public', { p_tracking_number: trackingNumber })
     .maybeSingle();
   if (error) throw error;
+  if (!data) return null;
+
+  if (data.id && typeof data.has_feedback !== 'undefined') {
+    return data;
+  }
+
+  if (data.id) {
+    try {
+      const hasFeedback = await checkIfFeedbackExists(data.id);
+      return { ...data, has_feedback: hasFeedback };
+    } catch {
+      return { ...data, has_feedback: false };
+    }
+  }
+
   return data;
 };
 

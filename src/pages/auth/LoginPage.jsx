@@ -246,8 +246,8 @@ const LoginPage = () => {
           </div>
 
           <div className="login-form-header">
-            <h2 className="login-form-title">Welcome back</h2>
-            <p className="login-form-sub">Sign in to manage your shipments &amp; track orders.</p>
+            <h2 className="login-form-title">Admin &amp; Staff Sign In</h2>
+            <p className="login-form-sub">Customers do not need to sign in. Log in to access the Admin Portal.</p>
           </div>
 
           {!loginError && flashMessage && (
@@ -361,12 +361,12 @@ const LoginPage = () => {
 
           {/* Divider */}
           <div className="login-divider">
-            <span>Don't have an account?</span>
+            <span>Sending cargo as a customer?</span>
           </div>
 
-          {/* Sign up */}
-          <Link to="/register" className="login-signup-btn">
-            Create account
+          {/* Book Cargo directly without account */}
+          <Link to="/#booking-section" className="login-signup-btn">
+            Book Cargo (No Login Required)
           </Link>
 
           {/* Footer links */}

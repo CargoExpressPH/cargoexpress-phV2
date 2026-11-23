@@ -1091,7 +1091,7 @@ const AboutPage = () => {
                 ))}
               </motion.div>
               <div className="about-trip-section-actions">
-                <Link to="/customer/book" className="btn btn-primary">
+                <Link to="/book" className="btn btn-primary">
                   Book Cargo
                 </Link>
               </div>

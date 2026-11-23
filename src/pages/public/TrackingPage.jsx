@@ -8,9 +8,10 @@ import { formatPhDate, formatPhDateTime } from '../../utils/datetime';
 import {
   Search, Loader, Package, MapPin, Check, MessageCircle, Copy, Share2, Phone, ExternalLink,
   History, ReceiptText, Tag, Radio, Route, CalendarCheck,
-  CheckCircle2, XCircle, Clock, Weight, User,
+  CheckCircle2, XCircle, Clock, Weight, User, Star,
   RefreshCw, AlertTriangle, ShieldAlert, Truck, Calendar, ClipboardCheck, Building2, Bike,
 } from 'lucide-react';
+import ServiceRatingModal from '../../components/public/ServiceRatingModal';
 import {
   STATUS_TIMELINE, TRACKING_STATUS_TONES, STATUS_ICONS, STATUS_DESCRIPTIONS, ORDER_STATUS, timelineStatus,
 } from '../../constants/status';
@@ -192,6 +193,7 @@ const TrackingPage = ({ embedded = false }) => {
   const [lastRefreshed, setLastRefreshed] = useState(null);
   const [isRateLimited, setIsRateLimited] = useState(false);
   const [retryAfterSeconds, setRetryAfterSeconds] = useState(0);
+  const [isRatingModalOpen, setIsRatingModalOpen] = useState(false);
 
   // Latest tracking number we are viewing — kept in a ref so the
   // visibilitychange/polling callbacks always read the current value
@@ -763,6 +765,51 @@ const TrackingPage = ({ embedded = false }) => {
                 <span className="trk-hero-date-value">{keyDate.value}</span>
               </div>
             )}
+            {/* Post-Delivery Rating Prompt in Hero */}
+            {isDelivered && (
+              <div
+                style={{
+                  marginTop: 16,
+                  padding: '12px 16px',
+                  background: 'rgba(255, 255, 255, 0.14)',
+                  borderRadius: 10,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: 12,
+                }}
+              >
+                <div>
+                  <p style={{ margin: 0, fontWeight: 700, fontSize: '0.95rem' }}>
+                    {order.has_feedback ? '✓ Service Rated' : 'How was your delivery service?'}
+                  </p>
+                  <p style={{ margin: '2px 0 0', fontSize: '0.85rem', opacity: 0.9 }}>
+                    {order.has_feedback
+                      ? 'Thank you for your feedback!'
+                      : 'Share your rating and feedback on this delivery.'}
+                  </p>
+                </div>
+                {!order.has_feedback && (
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() => setIsRatingModalOpen(true)}
+                    style={{
+                      background: '#f59e0b',
+                      color: '#000',
+                      fontWeight: 700,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      border: 'none',
+                    }}
+                  >
+                    <Star size={15} fill="#000" color="#000" /> Rate This Service
+                  </button>
+                )}
+              </div>
+            )}
           </section>
 
           <div className="trk-result-body">
@@ -862,6 +909,40 @@ const TrackingPage = ({ embedded = false }) => {
                 </div>
               </div>
             </section>
+
+            {/* ── Post-Delivery Rating Section ── */}
+            {isDelivered && !order.has_feedback && (
+              <section
+                className="trk-section"
+                style={{
+                  textAlign: 'center',
+                  padding: '28px 20px',
+                  background: 'var(--primary-bg, #f0fdfa)',
+                  border: '1px solid var(--primary, #0f766e)',
+                  borderRadius: 'var(--radius-lg, 14px)',
+                }}
+              >
+                <div style={{ display: 'inline-flex', justifyContent: 'center', gap: 6, marginBottom: 8 }}>
+                  {[1, 2, 3, 4, 5].map((s) => (
+                    <Star key={s} size={24} fill="#f59e0b" color="#f59e0b" />
+                  ))}
+                </div>
+                <h3 style={{ margin: '0 0 6px', fontSize: '1.25rem', fontWeight: 800, color: 'var(--primary, #0f766e)' }}>
+                  Shipment Delivered! Rate This Service
+                </h3>
+                <p style={{ margin: '0 0 18px', fontSize: '0.9rem', color: 'var(--text-secondary, #64748b)', maxWidth: 440, marginLeft: 'auto', marginRight: 'auto' }}>
+                  Your package has been delivered. Tell us how satisfied you were with our delivery speed, cargo handling, and driver service!
+                </p>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => setIsRatingModalOpen(true)}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '12px 28px', fontWeight: 700 }}
+                >
+                  <Star size={18} fill="#f59e0b" color="#f59e0b" /> Rate This Service
+                </button>
+              </section>
+            )}
           </div>
 
           {/* ── Need help? ── */}
@@ -996,6 +1077,17 @@ const TrackingPage = ({ embedded = false }) => {
         )}
         <p className="trk-footer-copy">© {new Date().getFullYear()} CargoExpress PH</p>
       </footer>
+      )}
+      {/* ══════════ SERVICE RATING MODAL ══════════ */}
+      {order && (
+        <ServiceRatingModal
+          isOpen={isRatingModalOpen}
+          onClose={() => setIsRatingModalOpen(false)}
+          order={order}
+          onFeedbackSubmitted={() => {
+            setOrder((prev) => (prev ? { ...prev, has_feedback: true } : prev));
+          }}
+        />
       )}
     </RootTag>
   );
